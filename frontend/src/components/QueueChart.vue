@@ -7,7 +7,6 @@ import {
   TitleComponent,
   TooltipComponent,
   GridComponent,
-  LegendComponent,
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -18,98 +17,84 @@ use([
   TitleComponent,
   TooltipComponent,
   GridComponent,
-  LegendComponent,
   DataZoomComponent,
   CanvasRenderer,
 ])
 
 const props = defineProps<{ data: SnapshotPoint[] }>()
 
-const option = computed(() => {
-  const times = props.data.map((p) => new Date(p.captured_at).toLocaleString())
-  return {
-    tooltip: {
-      trigger: 'axis',
-    },
-    legend: {
-      data: ['Cars in Queue', 'Sent/Hour', 'Sent/24h'],
-      textStyle: { color: '#aaa' },
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '15%',
-      containLabel: true,
-    },
-    dataZoom: [
-      {
-        type: 'inside',
-        start: 0,
-        end: 100,
+function makeOption(title: string, field: keyof SnapshotPoint, color: string, areaColor?: string) {
+  return computed(() => {
+    const times = props.data.map((p) => new Date(p.captured_at).toLocaleString())
+    return {
+      title: {
+        text: title,
+        textStyle: { color: '#ccc', fontSize: 14, fontWeight: 500 },
+        left: 'center',
       },
-      {
-        type: 'slider',
-        start: 0,
-        end: 100,
+      tooltip: { trigger: 'axis' },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '15%',
+        containLabel: true,
       },
-    ],
-    xAxis: {
-      type: 'category',
-      data: times,
-      axisLabel: { color: '#888' },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#888' },
-      splitLine: { lineStyle: { color: '#2a2a4a' } },
-    },
-    series: [
-      {
-        name: 'Cars in Queue',
-        type: 'line',
-        data: props.data.map((p) => Math.round(p.cars_count)),
-        smooth: true,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#7c8cf5' },
-        areaStyle: { color: 'rgba(124, 140, 245, 0.1)' },
+      dataZoom: [
+        { type: 'inside', start: 0, end: 100 },
+        { type: 'slider', start: 0, end: 100 },
+      ],
+      xAxis: {
+        type: 'category',
+        data: times,
+        axisLabel: { color: '#888' },
       },
-      {
-        name: 'Sent/Hour',
-        type: 'line',
-        data: props.data.map((p) => Math.round(p.sent_last_hour)),
-        smooth: true,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#4ecdc4' },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: '#888' },
+        splitLine: { lineStyle: { color: '#2a2a4a' } },
       },
-      {
-        name: 'Sent/24h',
-        type: 'line',
-        data: props.data.map((p) => Math.round(p.sent_last_24h)),
-        smooth: true,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#ff6b6b' },
-      },
-    ],
-  }
-})
+      series: [
+        {
+          name: title,
+          type: 'line',
+          data: props.data.map((p) => Math.round(p[field] as number)),
+          smooth: true,
+          lineStyle: { width: 2 },
+          itemStyle: { color },
+          ...(areaColor ? { areaStyle: { color: areaColor } } : {}),
+        },
+      ],
+    }
+  })
+}
+
+const carsOption = makeOption('Cars in Queue', 'cars_count', '#7c8cf5', 'rgba(124, 140, 245, 0.1)')
+const sentHourOption = makeOption('Sent / Hour', 'sent_last_hour', '#4ecdc4')
+const sentDayOption = makeOption('Sent / 24h', 'sent_last_24h', '#ff6b6b')
 </script>
 
 <template>
-  <div class="chart-container">
+  <div class="charts-container">
     <p v-if="data.length === 0" class="no-data">No data for selected period</p>
-    <v-chart v-else :option="option" autoresize class="chart" />
+    <template v-else>
+      <v-chart :option="carsOption" autoresize class="chart" />
+      <v-chart :option="sentHourOption" autoresize class="chart" />
+      <v-chart :option="sentDayOption" autoresize class="chart" />
+    </template>
   </div>
 </template>
 
 <style scoped>
-.chart-container {
+.charts-container {
   width: 100%;
-  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .chart {
   width: 100%;
-  height: 400px;
+  height: 350px;
 }
 
 .no-data {

@@ -6,8 +6,9 @@ services:
       POSTGRES_USER: border
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-border}
       POSTGRES_DB: border
+      PGDATA: /data/pgdata
     volumes:
-      - ${POSTGRES_DATA_DIR:-./pgdata}:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_DIR:-./pgdata}:/data/pgdata
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U border"]
       interval: 5s
