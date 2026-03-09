@@ -42,3 +42,14 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  pgweb:
+    image: sosedoff/pgweb:0.17.0
+    environment:
+      PGWEB_DATABASE_URL: postgres://border:${POSTGRES_PASSWORD:-border}@postgres:5432/border?sslmode=disable
+    ports:
+      - "${PGWEB_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
