@@ -21,6 +21,7 @@ type Querier interface {
 	GetVehicleHistory(ctx context.Context, zoneID string, from, to time.Time) ([]db.VehicleRow, error)
 	GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber string) ([]db.VehicleStatusChange, error)
 	SearchVehicles(ctx context.Context, query string) ([]db.VehicleSearchResult, error)
+	GetRecentVehicles(ctx context.Context) ([]db.VehicleSearchResult, error)
 	GetVehicleHistoryGlobal(ctx context.Context, regNumber string) ([]db.VehicleStatusChangeWithZone, error)
 }
 
@@ -57,6 +58,7 @@ func NewRouter(h *Handler) http.Handler {
 		r.Get("/zones/{id}/vehicles/history", h.GetVehicleHistory)
 		r.Get("/zones/{id}/vehicles/{regNumber}/history", h.GetSingleVehicleHistory)
 		r.Get("/vehicles/search", h.SearchVehicles)
+		r.Get("/vehicles/recent", h.GetRecentVehicles)
 		r.Get("/vehicles/{regNumber}/history", h.GetGlobalVehicleHistory)
 	})
 
@@ -164,6 +166,16 @@ func (h *Handler) GetSingleVehicleHistory(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, changes)
+}
+
+func (h *Handler) GetRecentVehicles(w http.ResponseWriter, r *http.Request) {
+	results, err := h.db.GetRecentVehicles(r.Context())
+	if err != nil {
+		h.logger.Error("get recent vehicles", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
 }
 
 func (h *Handler) SearchVehicles(w http.ResponseWriter, r *http.Request) {

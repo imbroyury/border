@@ -372,5 +372,41 @@ type VehicleStatusChangeWithZone struct {
 	ZoneID          string    `json:"zone_id"`
 }
 
+// GetRecentVehicles returns the most recently seen vehicles across all zones.
+func (d *DB) GetRecentVehicles(ctx context.Context) ([]VehicleSearchResult, error) {
+	sql := `
+		SELECT reg_number, zone_id, status, last_seen FROM (
+			SELECT DISTINCT ON (v.reg_number)
+			       v.reg_number, v.zone_id, v.status, s.captured_at AS last_seen
+			FROM vehicles v
+			JOIN snapshots s ON s.id = v.snapshot_id
+			ORDER BY v.reg_number, s.captured_at DESC
+		) sub
+		ORDER BY last_seen DESC
+		LIMIT 50`
+
+	rows, err := d.Pool.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("query recent vehicles: %w", err)
+	}
+	defer rows.Close()
+
+	var results []VehicleSearchResult
+	for rows.Next() {
+		var r VehicleSearchResult
+		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen); err != nil {
+			return nil, fmt.Errorf("scan recent vehicle: %w", err)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	if results == nil {
+		results = []VehicleSearchResult{}
+	}
+	return results, nil
+}
+
 // ScanZoneWithCount is a helper for tests — not exported, pgx uses rows.Scan directly.
 var _ pgx.Rows = nil // ensure pgx import

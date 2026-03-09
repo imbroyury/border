@@ -44,6 +44,10 @@ export function searchVehicles(query: string): Promise<VehicleSearchResult[]> {
   return get('/api/vehicles/search', { q: query })
 }
 
+export function fetchRecentVehicles(): Promise<VehicleSearchResult[]> {
+  return get('/api/vehicles/recent')
+}
+
 export function fetchGlobalVehicleHistory(regNumber: string): Promise<VehicleStatusChangeWithZone[]> {
   return get(`/api/vehicles/${encodeURIComponent(regNumber)}/history`)
 }

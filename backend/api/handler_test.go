@@ -28,6 +28,8 @@ type mockDB struct {
 	singleVehicleHistoryErr error
 	searchResults           []db.VehicleSearchResult
 	searchErr               error
+	recentVehicles          []db.VehicleSearchResult
+	recentVehiclesErr       error
 	globalHistory           []db.VehicleStatusChangeWithZone
 	globalHistoryErr        error
 }
@@ -54,6 +56,10 @@ func (m *mockDB) GetSingleVehicleHistory(_ context.Context, _, _ string) ([]db.V
 
 func (m *mockDB) SearchVehicles(_ context.Context, _ string) ([]db.VehicleSearchResult, error) {
 	return m.searchResults, m.searchErr
+}
+
+func (m *mockDB) GetRecentVehicles(_ context.Context) ([]db.VehicleSearchResult, error) {
+	return m.recentVehicles, m.recentVehiclesErr
 }
 
 func (m *mockDB) GetVehicleHistoryGlobal(_ context.Context, _ string) ([]db.VehicleStatusChangeWithZone, error) {

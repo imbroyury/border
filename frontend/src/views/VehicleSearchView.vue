@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import type { VehicleSearchResult, VehicleStatusChangeWithZone } from '../api/types'
-import { searchVehicles, fetchGlobalVehicleHistory } from '../api/client'
+import { searchVehicles, fetchGlobalVehicleHistory, fetchRecentVehicles } from '../api/client'
 
 const query = ref('')
 const results = ref<VehicleSearchResult[]>([])
+const recentVehicles = ref<VehicleSearchResult[]>([])
 const searching = ref(false)
+const loadingRecent = ref(true)
 const searchError = ref('')
 
 const selectedReg = ref<string | null>(null)
@@ -14,6 +16,16 @@ const loadingHistory = ref(false)
 const historyError = ref('')
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+onMounted(async () => {
+  try {
+    recentVehicles.value = await fetchRecentVehicles()
+  } catch {
+    // non-critical
+  } finally {
+    loadingRecent.value = false
+  }
+})
 
 watch(query, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -93,17 +105,21 @@ function statusClass(status: string): string {
     <p v-else-if="searching" class="status">Searching...</p>
     <p v-else-if="query.length >= 2 && results.length === 0 && !searching" class="status">No vehicles found</p>
 
-    <div v-if="results.length > 0 && !selectedReg" class="results-list">
-      <div
-        v-for="r in results"
-        :key="r.reg_number + r.zone_id"
-        class="result-item"
-        @click="selectVehicle(r.reg_number)"
-      >
-        <span class="mono reg">{{ r.reg_number }}</span>
-        <span class="zone-label">{{ r.zone_id }}</span>
-        <span :class="['status-badge', statusClass(r.status)]">{{ r.status }}</span>
-        <span class="time-label">{{ formatTime(r.last_seen) }}</span>
+    <div v-if="!selectedReg && (query.length >= 2 ? results.length > 0 : recentVehicles.length > 0)" class="results-section">
+      <h2 v-if="query.length < 2" class="section-title">Recent vehicles</h2>
+      <p v-if="query.length < 2 && loadingRecent" class="status">Loading...</p>
+      <div class="results-list">
+        <div
+          v-for="r in (query.length >= 2 ? results : recentVehicles)"
+          :key="r.reg_number + r.zone_id"
+          class="result-item"
+          @click="selectVehicle(r.reg_number)"
+        >
+          <span class="mono reg">{{ r.reg_number }}</span>
+          <span class="zone-label">{{ r.zone_id }}</span>
+          <span :class="['status-badge', statusClass(r.status)]">{{ r.status }}</span>
+          <span class="time-label">{{ formatTime(r.last_seen) }}</span>
+        </div>
       </div>
     </div>
 
@@ -169,6 +185,12 @@ function statusClass(status: string): string {
 .search-input:focus {
   outline: none;
   border-color: #7c8cf5;
+}
+
+.section-title {
+  font-size: 1rem;
+  color: #888;
+  margin-bottom: 0.75rem;
 }
 
 .results-list {
