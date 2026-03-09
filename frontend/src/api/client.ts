@@ -1,4 +1,4 @@
-import type { Zone, SnapshotPoint, Vehicle } from './types'
+import type { Zone, SnapshotPoint, Vehicle, VehicleStatusChange } from './types'
 
 async function get<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(path, window.location.origin)
@@ -34,4 +34,8 @@ export function fetchVehicleHistory(zoneId: string, from: Date, to: Date): Promi
     from: from.toISOString(),
     to: to.toISOString(),
   })
+}
+
+export function fetchSingleVehicleHistory(zoneId: string, regNumber: string): Promise<VehicleStatusChange[]> {
+  return get(`/api/zones/${zoneId}/vehicles/${encodeURIComponent(regNumber)}/history`)
 }

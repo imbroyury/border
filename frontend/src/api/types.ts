@@ -21,6 +21,13 @@ export interface Vehicle {
   status_changed_at: string
 }
 
+export interface VehicleStatusChange {
+  captured_at: string
+  status: string
+  queue_type: string
+  status_changed_at: string
+}
+
 export interface DurationPreset {
   label: string
   value: string

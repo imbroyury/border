@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { Vehicle } from '../api/types'
 
 const props = defineProps<{ vehicles: Vehicle[] }>()
+const emit = defineEmits<{ select: [regNumber: string] }>()
 
 type SortKey = 'reg_number' | 'queue_type' | 'status' | 'registered_at' | 'status_changed_at'
 
@@ -80,7 +81,7 @@ function statusClass(status: string): string {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="v in sorted" :key="v.reg_number">
+        <tr v-for="v in sorted" :key="v.reg_number" class="clickable-row" @click="emit('select', v.reg_number)">
           <td class="mono">{{ v.reg_number }}</td>
           <td>{{ v.queue_type }}</td>
           <td><span :class="['status-badge', statusClass(v.status)]">{{ v.status }}</span></td>
@@ -123,6 +124,14 @@ function statusClass(status: string): string {
 
 .sortable:hover {
   color: #ccc;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(124, 140, 245, 0.08);
 }
 
 .mono {

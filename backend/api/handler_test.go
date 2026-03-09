@@ -16,14 +16,16 @@ import (
 
 // mockDB implements Querier for testing.
 type mockDB struct {
-	zones           []db.ZoneWithCount
-	zonesErr        error
-	snapshots       []db.SnapshotPoint
-	snapshotsErr    error
-	vehicles        []db.VehicleRow
-	vehiclesErr     error
-	historyVehicles []db.VehicleRow
-	historyErr      error
+	zones                  []db.ZoneWithCount
+	zonesErr               error
+	snapshots              []db.SnapshotPoint
+	snapshotsErr           error
+	vehicles               []db.VehicleRow
+	vehiclesErr            error
+	historyVehicles        []db.VehicleRow
+	historyErr             error
+	singleVehicleHistory   []db.VehicleStatusChange
+	singleVehicleHistoryErr error
 }
 
 func (m *mockDB) GetZones(_ context.Context) ([]db.ZoneWithCount, error) {
@@ -40,6 +42,10 @@ func (m *mockDB) GetCurrentVehicles(_ context.Context, _ string) ([]db.VehicleRo
 
 func (m *mockDB) GetVehicleHistory(_ context.Context, _ string, _, _ time.Time) ([]db.VehicleRow, error) {
 	return m.historyVehicles, m.historyErr
+}
+
+func (m *mockDB) GetSingleVehicleHistory(_ context.Context, _, _ string) ([]db.VehicleStatusChange, error) {
+	return m.singleVehicleHistory, m.singleVehicleHistoryErr
 }
 
 func newTestServer(mock *mockDB) *httptest.Server {

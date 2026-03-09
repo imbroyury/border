@@ -19,6 +19,7 @@ type Querier interface {
 	GetSnapshots(ctx context.Context, zoneID string, from, to time.Time) ([]db.SnapshotPoint, error)
 	GetCurrentVehicles(ctx context.Context, zoneID string) ([]db.VehicleRow, error)
 	GetVehicleHistory(ctx context.Context, zoneID string, from, to time.Time) ([]db.VehicleRow, error)
+	GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber string) ([]db.VehicleStatusChange, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -52,6 +53,7 @@ func NewRouter(h *Handler) http.Handler {
 		r.Get("/zones/{id}/snapshots", h.GetSnapshots)
 		r.Get("/zones/{id}/vehicles", h.GetCurrentVehicles)
 		r.Get("/zones/{id}/vehicles/history", h.GetVehicleHistory)
+		r.Get("/zones/{id}/vehicles/{regNumber}/history", h.GetSingleVehicleHistory)
 	})
 
 	return r
@@ -145,6 +147,19 @@ func (h *Handler) GetVehicleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, vehicles)
+}
+
+func (h *Handler) GetSingleVehicleHistory(w http.ResponseWriter, r *http.Request) {
+	zoneID := chi.URLParam(r, "id")
+	regNumber := chi.URLParam(r, "regNumber")
+
+	changes, err := h.db.GetSingleVehicleHistory(r.Context(), zoneID, regNumber)
+	if err != nil {
+		h.logger.Error("get single vehicle history", "error", err, "zone_id", zoneID, "reg_number", regNumber)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, changes)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
