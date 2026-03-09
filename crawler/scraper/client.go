@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 )
 
@@ -31,31 +32,103 @@ func init() {
 }
 
 const (
-	defaultBaseURL = "https://belarusborder.by/info"
-	checkpointToken = "bts47d5f-6420-4f74-8f78-42e8e4370cc4"
-	monitoringToken = "test"
+	defaultBaseURL  = "https://belarusborder.by/info"
+	tokenSourceURL  = "https://mon.declarant.by"
 )
+
+var (
+	mainBundleRe      = regexp.MustCompile(`src="(main\.[a-f0-9]+\.js)"`)
+	checkpointTokenRe = regexp.MustCompile(`token="([^"]+)"`)
+	monitoringTokenRe = regexp.MustCompile(`tokenTest="([^"]+)"`)
+)
+
+// Tokens holds the API tokens scraped from the mon.declarant.by frontend.
+type Tokens struct {
+	Checkpoint string
+	Monitoring string
+}
 
 // Client fetches border queue data from the belarusborder.by API.
 type Client struct {
 	baseURL    string
+	tokens     Tokens
 	httpClient *http.Client
 }
 
-// NewClient creates a new API client.
-func NewClient(baseURL string, httpClient *http.Client) *Client {
+// NewClient creates a new API client with pre-fetched tokens.
+func NewClient(baseURL string, tokens Tokens, httpClient *http.Client) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Client{baseURL: baseURL, httpClient: httpClient}
+	return &Client{baseURL: baseURL, tokens: tokens, httpClient: httpClient}
+}
+
+// FetchTokens scrapes API tokens from the mon.declarant.by frontend bundle.
+func FetchTokens(ctx context.Context, httpClient *http.Client) (Tokens, error) {
+	return fetchTokensFrom(ctx, httpClient, tokenSourceURL)
+}
+
+func fetchTokensFrom(ctx context.Context, httpClient *http.Client, sourceURL string) (Tokens, error) {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+
+	// Step 1: Fetch the index page to find the main bundle filename.
+	indexBody, err := doSimpleGet(ctx, httpClient, sourceURL)
+	if err != nil {
+		return Tokens{}, fmt.Errorf("fetch token source page: %w", err)
+	}
+
+	match := mainBundleRe.FindSubmatch(indexBody)
+	if match == nil {
+		return Tokens{}, fmt.Errorf("main bundle not found in %s", sourceURL)
+	}
+	bundleFile := string(match[1])
+
+	// Step 2: Fetch the main bundle and extract tokens.
+	bundleBody, err := doSimpleGet(ctx, httpClient, sourceURL+"/"+bundleFile)
+	if err != nil {
+		return Tokens{}, fmt.Errorf("fetch main bundle: %w", err)
+	}
+
+	cpMatch := checkpointTokenRe.FindSubmatch(bundleBody)
+	if cpMatch == nil {
+		return Tokens{}, fmt.Errorf("checkpoint token not found in bundle")
+	}
+
+	monMatch := monitoringTokenRe.FindSubmatch(bundleBody)
+	if monMatch == nil {
+		return Tokens{}, fmt.Errorf("monitoring token not found in bundle")
+	}
+
+	return Tokens{
+		Checkpoint: string(cpMatch[1]),
+		Monitoring: string(monMatch[1]),
+	}, nil
+}
+
+func doSimpleGet(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // FetchCheckpoints fetches all checkpoint summaries.
 func (c *Client) FetchCheckpoints(ctx context.Context) ([]CheckpointEntry, error) {
-	url := fmt.Sprintf("%s/checkpoint?token=%s", c.baseURL, checkpointToken)
+	url := fmt.Sprintf("%s/checkpoint?token=%s", c.baseURL, c.tokens.Checkpoint)
 
 	body, err := c.doGet(ctx, url)
 	if err != nil {
@@ -72,7 +145,7 @@ func (c *Client) FetchCheckpoints(ctx context.Context) ([]CheckpointEntry, error
 
 // FetchMonitoring fetches detailed vehicle queues for a checkpoint.
 func (c *Client) FetchMonitoring(ctx context.Context, checkpointID string) (*MonitoringResponse, error) {
-	url := fmt.Sprintf("%s/monitoring-new?token=%s&checkpointId=%s", c.baseURL, monitoringToken, checkpointID)
+	url := fmt.Sprintf("%s/monitoring-new?token=%s&checkpointId=%s", c.baseURL, c.tokens.Monitoring, checkpointID)
 
 	body, err := c.doGet(ctx, url)
 	if err != nil {
@@ -89,7 +162,7 @@ func (c *Client) FetchMonitoring(ctx context.Context, checkpointID string) (*Mon
 
 // FetchStatistics fetches sent-last-hour/day stats for a checkpoint.
 func (c *Client) FetchStatistics(ctx context.Context, checkpointID string) (*StatisticsResponse, error) {
-	url := fmt.Sprintf("%s/monitoring/statistics?token=%s&checkpointId=%s", c.baseURL, monitoringToken, checkpointID)
+	url := fmt.Sprintf("%s/monitoring/statistics?token=%s&checkpointId=%s", c.baseURL, c.tokens.Monitoring, checkpointID)
 
 	body, err := c.doGet(ctx, url)
 	if err != nil {

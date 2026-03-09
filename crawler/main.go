@@ -47,7 +47,14 @@ func main() {
 	defer store.Close()
 	slog.Info("connected to database")
 
-	client := scraper.NewClient(apiBaseURL, nil)
+	tokens, err := scraper.FetchTokens(ctx, nil)
+	if err != nil {
+		slog.Error("failed to fetch API tokens", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("fetched API tokens")
+
+	client := scraper.NewClient(apiBaseURL, tokens, nil)
 
 	// Run immediately on startup, then on the interval.
 	crawl(ctx, client, store)

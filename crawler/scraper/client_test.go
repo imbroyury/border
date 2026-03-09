@@ -38,7 +38,7 @@ func TestFetchCheckpoints_Success(t *testing.T) {
 		w.Write(data)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	entries, err := client.FetchCheckpoints(context.Background())
 	if err != nil {
 		t.Fatalf("FetchCheckpoints: %v", err)
@@ -66,7 +66,7 @@ func TestFetchCheckpoints_ServerError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	_, err := client.FetchCheckpoints(context.Background())
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -79,7 +79,7 @@ func TestFetchCheckpoints_InvalidJSON(t *testing.T) {
 		w.Write([]byte("not json"))
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	_, err := client.FetchCheckpoints(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -91,7 +91,7 @@ func TestFetchCheckpoints_ContextCancellation(t *testing.T) {
 		<-r.Context().Done()
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
@@ -118,7 +118,7 @@ func TestFetchMonitoring_Success(t *testing.T) {
 		w.Write(data)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	resp, err := client.FetchMonitoring(context.Background(), "98b5be92-d3a5-4ba2-9106-76eb4eb3df49")
 	if err != nil {
 		t.Fatalf("FetchMonitoring: %v", err)
@@ -139,7 +139,7 @@ func TestFetchMonitoring_ServerError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	_, err := client.FetchMonitoring(context.Background(), "test-id")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -159,7 +159,7 @@ func TestFetchStatistics_Success(t *testing.T) {
 		w.Write(data)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	resp, err := client.FetchStatistics(context.Background(), "a9173a85-3fc0-424c-84f0-defa632481e4")
 	if err != nil {
 		t.Fatalf("FetchStatistics: %v", err)
@@ -178,7 +178,7 @@ func TestFetchStatistics_ServerError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	_, err := client.FetchStatistics(context.Background(), "test-id")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -193,7 +193,7 @@ func TestFetchZoneSummary_Success(t *testing.T) {
 		w.Write(data)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	entries, err := client.FetchZoneSummary(context.Background())
 	if err != nil {
 		t.Fatalf("FetchZoneSummary: %v", err)
@@ -228,7 +228,7 @@ func TestFetchZoneDetail_Success(t *testing.T) {
 		}
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	detail, err := client.FetchZoneDetail(context.Background(), "test-id")
 	if err != nil {
 		t.Fatalf("FetchZoneDetail: %v", err)
@@ -246,7 +246,7 @@ func TestFetchZoneDetail_MonitoringFails(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	client := NewClient(srv.URL, nil)
+	client := NewClient(srv.URL, Tokens{Checkpoint: "test-cp", Monitoring: "test-mon"}, nil)
 	_, err := client.FetchZoneDetail(context.Background(), "test-id")
 	if err == nil {
 		t.Fatal("expected error when monitoring fails")
@@ -254,7 +254,7 @@ func TestFetchZoneDetail_MonitoringFails(t *testing.T) {
 }
 
 func TestNewClient_Defaults(t *testing.T) {
-	c := NewClient("", nil)
+	c := NewClient("", Tokens{}, nil)
 	if c.baseURL != defaultBaseURL {
 		t.Errorf("expected default base URL, got %s", c.baseURL)
 	}
@@ -265,12 +265,16 @@ func TestNewClient_Defaults(t *testing.T) {
 
 func TestNewClient_CustomValues(t *testing.T) {
 	custom := &http.Client{Timeout: 5 * time.Second}
-	c := NewClient("http://custom.url", custom)
+	tokens := Tokens{Checkpoint: "cp", Monitoring: "mon"}
+	c := NewClient("http://custom.url", tokens, custom)
 	if c.baseURL != "http://custom.url" {
 		t.Errorf("expected custom URL, got %s", c.baseURL)
 	}
 	if c.httpClient != custom {
 		t.Fatal("expected custom HTTP client")
+	}
+	if c.tokens.Checkpoint != "cp" {
+		t.Errorf("expected checkpoint token 'cp', got %s", c.tokens.Checkpoint)
 	}
 }
 
@@ -327,5 +331,59 @@ func TestSlugToCheckpointID_Mappings(t *testing.T) {
 	}
 	if len(SlugToCheckpointID) != len(CheckpointIDToSlug) {
 		t.Error("slug maps have different sizes")
+	}
+}
+
+func TestFetchTokens_Success(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Write([]byte(`<html><script src="main.abc123def456.js"></script></html>`))
+		case "/main.abc123def456.js":
+			w.Write([]byte(`some code;token="my-checkpoint-token",this.tokenTest="my-monitoring-token";more code`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	// Override tokenSourceURL by fetching from test server directly.
+	tokens, err := fetchTokensFrom(context.Background(), nil, srv.URL)
+	if err != nil {
+		t.Fatalf("FetchTokens: %v", err)
+	}
+	if tokens.Checkpoint != "my-checkpoint-token" {
+		t.Errorf("checkpoint token = %q, want %q", tokens.Checkpoint, "my-checkpoint-token")
+	}
+	if tokens.Monitoring != "my-monitoring-token" {
+		t.Errorf("monitoring token = %q, want %q", tokens.Monitoring, "my-monitoring-token")
+	}
+}
+
+func TestFetchTokens_MissingBundle(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<html>no script tags</html>`))
+	})
+
+	_, err := fetchTokensFrom(context.Background(), nil, srv.URL)
+	if err == nil {
+		t.Fatal("expected error when bundle not found")
+	}
+}
+
+func TestFetchTokens_MissingTokens(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Write([]byte(`<html><script src="main.abc123def456.js"></script></html>`))
+		case "/main.abc123def456.js":
+			w.Write([]byte(`no tokens here`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	_, err := fetchTokensFrom(context.Background(), nil, srv.URL)
+	if err == nil {
+		t.Fatal("expected error when tokens not found in bundle")
 	}
 }
