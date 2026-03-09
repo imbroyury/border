@@ -28,6 +28,17 @@ export interface VehicleStatusChange {
   status_changed_at: string
 }
 
+export interface VehicleStatusChangeWithZone extends VehicleStatusChange {
+  zone_id: string
+}
+
+export interface VehicleSearchResult {
+  reg_number: string
+  zone_id: string
+  status: string
+  last_seen: string
+}
+
 export interface DurationPreset {
   label: string
   value: string

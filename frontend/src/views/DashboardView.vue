@@ -64,7 +64,10 @@ onUnmounted(() => {
 
 <template>
   <div class="dashboard">
-    <h1 class="dashboard-title">Border Crossings</h1>
+    <div class="dashboard-header">
+      <h1 class="dashboard-title">Border Crossings</h1>
+      <router-link to="/vehicles" class="search-link">Search vehicles</router-link>
+    </div>
 
     <p v-if="loading" class="status">Loading...</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
@@ -86,9 +89,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
 .dashboard-title {
   font-size: 1.6rem;
-  margin-bottom: 1.5rem;
+}
+
+.search-link {
+  font-size: 0.9rem;
+  color: #7c8cf5;
 }
 
 .border-group {

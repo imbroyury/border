@@ -287,5 +287,90 @@ func (d *DB) GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber stri
 	return changes, nil
 }
 
+// VehicleSearchResult represents a vehicle found by search.
+type VehicleSearchResult struct {
+	RegNumber string    `json:"reg_number"`
+	ZoneID    string    `json:"zone_id"`
+	Status    string    `json:"status"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+// SearchVehicles searches for vehicles by reg number prefix across all zones.
+func (d *DB) SearchVehicles(ctx context.Context, query string) ([]VehicleSearchResult, error) {
+	sql := `
+		SELECT DISTINCT ON (v.reg_number, v.zone_id)
+		       v.reg_number, v.zone_id, v.status, s.captured_at
+		FROM vehicles v
+		JOIN snapshots s ON s.id = v.snapshot_id
+		WHERE v.reg_number ILIKE $1
+		ORDER BY v.reg_number, v.zone_id, s.captured_at DESC
+		LIMIT 50`
+
+	rows, err := d.Pool.Query(ctx, sql, "%"+query+"%")
+	if err != nil {
+		return nil, fmt.Errorf("search vehicles: %w", err)
+	}
+	defer rows.Close()
+
+	var results []VehicleSearchResult
+	for rows.Next() {
+		var r VehicleSearchResult
+		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen); err != nil {
+			return nil, fmt.Errorf("scan vehicle search result: %w", err)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	if results == nil {
+		results = []VehicleSearchResult{}
+	}
+	return results, nil
+}
+
+// GetVehicleHistoryGlobal returns all status observations for a vehicle across all zones.
+func (d *DB) GetVehicleHistoryGlobal(ctx context.Context, regNumber string) ([]VehicleStatusChangeWithZone, error) {
+	sql := `
+		SELECT s.captured_at, v.status, v.queue_type,
+		       COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z'),
+		       v.zone_id
+		FROM vehicles v
+		JOIN snapshots s ON s.id = v.snapshot_id
+		WHERE v.reg_number = $1
+		ORDER BY s.captured_at ASC`
+
+	rows, err := d.Pool.Query(ctx, sql, regNumber)
+	if err != nil {
+		return nil, fmt.Errorf("query global vehicle history: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []VehicleStatusChangeWithZone
+	for rows.Next() {
+		var c VehicleStatusChangeWithZone
+		if err := rows.Scan(&c.CapturedAt, &c.Status, &c.QueueType, &c.StatusChangedAt, &c.ZoneID); err != nil {
+			return nil, fmt.Errorf("scan vehicle status change: %w", err)
+		}
+		changes = append(changes, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	if changes == nil {
+		changes = []VehicleStatusChangeWithZone{}
+	}
+	return changes, nil
+}
+
+// VehicleStatusChangeWithZone extends VehicleStatusChange with zone info.
+type VehicleStatusChangeWithZone struct {
+	CapturedAt      time.Time `json:"captured_at"`
+	Status          string    `json:"status"`
+	QueueType       string    `json:"queue_type"`
+	StatusChangedAt time.Time `json:"status_changed_at"`
+	ZoneID          string    `json:"zone_id"`
+}
+
 // ScanZoneWithCount is a helper for tests — not exported, pgx uses rows.Scan directly.
 var _ pgx.Rows = nil // ensure pgx import

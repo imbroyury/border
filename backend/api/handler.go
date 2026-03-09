@@ -20,6 +20,8 @@ type Querier interface {
 	GetCurrentVehicles(ctx context.Context, zoneID string) ([]db.VehicleRow, error)
 	GetVehicleHistory(ctx context.Context, zoneID string, from, to time.Time) ([]db.VehicleRow, error)
 	GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber string) ([]db.VehicleStatusChange, error)
+	SearchVehicles(ctx context.Context, query string) ([]db.VehicleSearchResult, error)
+	GetVehicleHistoryGlobal(ctx context.Context, regNumber string) ([]db.VehicleStatusChangeWithZone, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -54,6 +56,8 @@ func NewRouter(h *Handler) http.Handler {
 		r.Get("/zones/{id}/vehicles", h.GetCurrentVehicles)
 		r.Get("/zones/{id}/vehicles/history", h.GetVehicleHistory)
 		r.Get("/zones/{id}/vehicles/{regNumber}/history", h.GetSingleVehicleHistory)
+		r.Get("/vehicles/search", h.SearchVehicles)
+		r.Get("/vehicles/{regNumber}/history", h.GetGlobalVehicleHistory)
 	})
 
 	return r
@@ -156,6 +160,34 @@ func (h *Handler) GetSingleVehicleHistory(w http.ResponseWriter, r *http.Request
 	changes, err := h.db.GetSingleVehicleHistory(r.Context(), zoneID, regNumber)
 	if err != nil {
 		h.logger.Error("get single vehicle history", "error", err, "zone_id", zoneID, "reg_number", regNumber)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, changes)
+}
+
+func (h *Handler) SearchVehicles(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if len(q) < 2 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query must be at least 2 characters"})
+		return
+	}
+
+	results, err := h.db.SearchVehicles(r.Context(), q)
+	if err != nil {
+		h.logger.Error("search vehicles", "error", err, "query", q)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+func (h *Handler) GetGlobalVehicleHistory(w http.ResponseWriter, r *http.Request) {
+	regNumber := chi.URLParam(r, "regNumber")
+
+	changes, err := h.db.GetVehicleHistoryGlobal(r.Context(), regNumber)
+	if err != nil {
+		h.logger.Error("get global vehicle history", "error", err, "reg_number", regNumber)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}

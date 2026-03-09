@@ -24,8 +24,12 @@ type mockDB struct {
 	vehiclesErr            error
 	historyVehicles        []db.VehicleRow
 	historyErr             error
-	singleVehicleHistory   []db.VehicleStatusChange
+	singleVehicleHistory    []db.VehicleStatusChange
 	singleVehicleHistoryErr error
+	searchResults           []db.VehicleSearchResult
+	searchErr               error
+	globalHistory           []db.VehicleStatusChangeWithZone
+	globalHistoryErr        error
 }
 
 func (m *mockDB) GetZones(_ context.Context) ([]db.ZoneWithCount, error) {
@@ -46,6 +50,14 @@ func (m *mockDB) GetVehicleHistory(_ context.Context, _ string, _, _ time.Time) 
 
 func (m *mockDB) GetSingleVehicleHistory(_ context.Context, _, _ string) ([]db.VehicleStatusChange, error) {
 	return m.singleVehicleHistory, m.singleVehicleHistoryErr
+}
+
+func (m *mockDB) SearchVehicles(_ context.Context, _ string) ([]db.VehicleSearchResult, error) {
+	return m.searchResults, m.searchErr
+}
+
+func (m *mockDB) GetVehicleHistoryGlobal(_ context.Context, _ string) ([]db.VehicleStatusChangeWithZone, error) {
+	return m.globalHistory, m.globalHistoryErr
 }
 
 func newTestServer(mock *mockDB) *httptest.Server {
