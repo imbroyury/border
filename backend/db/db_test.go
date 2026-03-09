@@ -97,7 +97,7 @@ func TestGetZones_WithSnapshot(t *testing.T) {
 	now := time.Now().UTC()
 	_, err := database.Pool.Exec(ctx,
 		"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-		"brest-bts", now, 42, 10, 100,
+		"brest", now, 42, 10, 100,
 	)
 	if err != nil {
 		t.Fatalf("insert snapshot: %v", err)
@@ -110,13 +110,13 @@ func TestGetZones_WithSnapshot(t *testing.T) {
 
 	var brest *ZoneWithCount
 	for i := range zones {
-		if zones[i].ID == "brest-bts" {
+		if zones[i].ID == "brest" {
 			brest = &zones[i]
 			break
 		}
 	}
 	if brest == nil {
-		t.Fatal("brest-bts not found")
+		t.Fatal("brest not found")
 	}
 	if brest.CarsCount != 42 {
 		t.Errorf("expected 42 cars, got %d", brest.CarsCount)
@@ -137,7 +137,7 @@ func TestGetSnapshots_NoData(t *testing.T) {
 	from := time.Now().Add(-1 * time.Hour)
 	to := time.Now()
 
-	points, err := database.GetSnapshots(ctx, "brest-bts", from, to)
+	points, err := database.GetSnapshots(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetSnapshots: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestGetSnapshots_RawData(t *testing.T) {
 		ts := now.Add(-time.Duration(i*15) * time.Minute)
 		_, err := database.Pool.Exec(ctx,
 			"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-			"brest-bts", ts, 10+i, 5+i, 50+i,
+			"brest", ts, 10+i, 5+i, 50+i,
 		)
 		if err != nil {
 			t.Fatalf("insert snapshot %d: %v", i, err)
@@ -170,7 +170,7 @@ func TestGetSnapshots_RawData(t *testing.T) {
 	from := now.Add(-2 * time.Hour)
 	to := now.Add(time.Minute)
 
-	points, err := database.GetSnapshots(ctx, "brest-bts", from, to)
+	points, err := database.GetSnapshots(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetSnapshots: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestGetSnapshots_HourlyAggregation(t *testing.T) {
 			ts := base.Add(-time.Duration(day*24+h) * time.Hour)
 			_, err := database.Pool.Exec(ctx,
 				"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-				"brest-bts", ts, 10, 5, 50,
+				"brest", ts, 10, 5, 50,
 			)
 			if err != nil {
 				t.Fatalf("insert: %v", err)
@@ -210,7 +210,7 @@ func TestGetSnapshots_HourlyAggregation(t *testing.T) {
 			ts2 := ts.Add(15 * time.Minute)
 			_, err = database.Pool.Exec(ctx,
 				"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-				"brest-bts", ts2, 20, 15, 100,
+				"brest", ts2, 20, 15, 100,
 			)
 			if err != nil {
 				t.Fatalf("insert: %v", err)
@@ -221,7 +221,7 @@ func TestGetSnapshots_HourlyAggregation(t *testing.T) {
 	from := base.Add(-3 * 24 * time.Hour)
 	to := base.Add(time.Hour)
 
-	points, err := database.GetSnapshots(ctx, "brest-bts", from, to)
+	points, err := database.GetSnapshots(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetSnapshots: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestGetSnapshots_SixHourAggregation(t *testing.T) {
 		ts := base.Add(-time.Duration(day) * 24 * time.Hour)
 		_, err := database.Pool.Exec(ctx,
 			"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-			"brest-bts", ts, 10, 5, 50,
+			"brest", ts, 10, 5, 50,
 		)
 		if err != nil {
 			t.Fatalf("insert: %v", err)
@@ -264,7 +264,7 @@ func TestGetSnapshots_SixHourAggregation(t *testing.T) {
 	from := base.Add(-31 * 24 * time.Hour)
 	to := base.Add(time.Hour)
 
-	points, err := database.GetSnapshots(ctx, "brest-bts", from, to)
+	points, err := database.GetSnapshots(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetSnapshots: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestGetSnapshots_DailyAggregation(t *testing.T) {
 		ts := base.Add(-time.Duration(day) * 24 * time.Hour)
 		_, err := database.Pool.Exec(ctx,
 			"INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h) VALUES ($1, $2, $3, $4, $5)",
-			"brest-bts", ts, day, 5, 50,
+			"brest", ts, day, 5, 50,
 		)
 		if err != nil {
 			t.Fatalf("insert: %v", err)
@@ -303,7 +303,7 @@ func TestGetSnapshots_DailyAggregation(t *testing.T) {
 	from := base.Add(-101 * 24 * time.Hour)
 	to := base.Add(time.Hour)
 
-	points, err := database.GetSnapshots(ctx, "brest-bts", from, to)
+	points, err := database.GetSnapshots(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetSnapshots: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestGetCurrentVehicles_NoData(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := context.Background()
 
-	vehicles, err := database.GetCurrentVehicles(ctx, "brest-bts")
+	vehicles, err := database.GetCurrentVehicles(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetCurrentVehicles: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 	var snapshotID1, snapshotID2 int64
 	err := database.Pool.QueryRow(ctx,
 		"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-		"brest-bts", now.Add(-30*time.Minute), 2,
+		"brest", now.Add(-30*time.Minute), 2,
 	).Scan(&snapshotID1)
 	if err != nil {
 		t.Fatalf("insert snapshot 1: %v", err)
@@ -353,7 +353,7 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 
 	err = database.Pool.QueryRow(ctx,
 		"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-		"brest-bts", now, 1,
+		"brest", now, 1,
 	).Scan(&snapshotID2)
 	if err != nil {
 		t.Fatalf("insert snapshot 2: %v", err)
@@ -362,7 +362,7 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 	// Insert vehicles for both snapshots
 	_, err = database.Pool.Exec(ctx,
 		"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		snapshotID1, "brest-bts", "AA1234-7", "cargo", "waiting", now.Add(-2*time.Hour), now.Add(-time.Hour),
+		snapshotID1, "brest", "AA1234-7", "cargo", "waiting", now.Add(-2*time.Hour), now.Add(-time.Hour),
 	)
 	if err != nil {
 		t.Fatalf("insert vehicle for snapshot 1: %v", err)
@@ -370,13 +370,13 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 
 	_, err = database.Pool.Exec(ctx,
 		"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		snapshotID2, "brest-bts", "BB5678-3", "passenger", "processing", now.Add(-time.Hour), now,
+		snapshotID2, "brest", "BB5678-3", "passenger", "processing", now.Add(-time.Hour), now,
 	)
 	if err != nil {
 		t.Fatalf("insert vehicle for snapshot 2: %v", err)
 	}
 
-	vehicles, err := database.GetCurrentVehicles(ctx, "brest-bts")
+	vehicles, err := database.GetCurrentVehicles(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetCurrentVehicles: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestGetVehicleHistory_NoData(t *testing.T) {
 	from := time.Now().Add(-24 * time.Hour)
 	to := time.Now()
 
-	vehicles, err := database.GetVehicleHistory(ctx, "brest-bts", from, to)
+	vehicles, err := database.GetVehicleHistory(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetVehicleHistory: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestGetVehicleHistory_TimeRangeFiltering(t *testing.T) {
 		var sid int64
 		err := database.Pool.QueryRow(ctx,
 			"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-			"brest-bts", ts, 1,
+			"brest", ts, 1,
 		).Scan(&sid)
 		if err != nil {
 			t.Fatalf("insert snapshot: %v", err)
@@ -443,7 +443,7 @@ func TestGetVehicleHistory_TimeRangeFiltering(t *testing.T) {
 
 		_, err = database.Pool.Exec(ctx,
 			"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			sid, "brest-bts", regNumbers[i], "cargo", "waiting", ts, ts,
+			sid, "brest", regNumbers[i], "cargo", "waiting", ts, ts,
 		)
 		if err != nil {
 			t.Fatalf("insert vehicle: %v", err)
@@ -454,7 +454,7 @@ func TestGetVehicleHistory_TimeRangeFiltering(t *testing.T) {
 	from := now.Add(-25 * time.Hour)
 	to := now.Add(time.Minute)
 
-	vehicles, err := database.GetVehicleHistory(ctx, "brest-bts", from, to)
+	vehicles, err := database.GetVehicleHistory(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetVehicleHistory: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestGetVehicleHistory_DeduplicatesVehicles(t *testing.T) {
 		var sid int64
 		err := database.Pool.QueryRow(ctx,
 			"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-			"brest-bts", ts, 1,
+			"brest", ts, 1,
 		).Scan(&sid)
 		if err != nil {
 			t.Fatalf("insert snapshot: %v", err)
@@ -498,7 +498,7 @@ func TestGetVehicleHistory_DeduplicatesVehicles(t *testing.T) {
 
 		_, err = database.Pool.Exec(ctx,
 			"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			sid, "brest-bts", "SAME-0001", "cargo", fmt.Sprintf("status-%d", i), now.Add(-3*time.Hour), ts,
+			sid, "brest", "SAME-0001", "cargo", fmt.Sprintf("status-%d", i), now.Add(-3*time.Hour), ts,
 		)
 		if err != nil {
 			t.Fatalf("insert vehicle: %v", err)
@@ -508,7 +508,7 @@ func TestGetVehicleHistory_DeduplicatesVehicles(t *testing.T) {
 	from := now.Add(-3 * time.Hour)
 	to := now.Add(time.Minute)
 
-	vehicles, err := database.GetVehicleHistory(ctx, "brest-bts", from, to)
+	vehicles, err := database.GetVehicleHistory(ctx, "brest", from, to)
 	if err != nil {
 		t.Fatalf("GetVehicleHistory: %v", err)
 	}

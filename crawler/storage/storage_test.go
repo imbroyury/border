@@ -62,7 +62,7 @@ func TestInsertSnapshot_ReturnsValidID(t *testing.T) {
 
 	ctx := context.Background()
 	snap := &Snapshot{
-		ZoneID:       "brest-bts",
+		ZoneID:       "brest",
 		CapturedAt:   time.Now().UTC(),
 		CarsCount:    42,
 		SentLastHour: 5,
@@ -90,14 +90,14 @@ func TestInsertSnapshot_MultipleSnapshots(t *testing.T) {
 	now := time.Now().UTC()
 
 	id1, err := store.InsertSnapshot(ctx, &Snapshot{
-		ZoneID: "brest-bts", CapturedAt: now, CarsCount: 10,
+		ZoneID: "brest", CapturedAt: now, CarsCount: 10,
 	})
 	if err != nil {
 		t.Fatalf("InsertSnapshot 1: %v", err)
 	}
 
 	id2, err := store.InsertSnapshot(ctx, &Snapshot{
-		ZoneID: "brest-bts", CapturedAt: now.Add(time.Minute), CarsCount: 20,
+		ZoneID: "brest", CapturedAt: now.Add(time.Minute), CarsCount: 20,
 	})
 	if err != nil {
 		t.Fatalf("InsertSnapshot 2: %v", err)
@@ -118,7 +118,7 @@ func TestInsertVehicles_EmptySlice(t *testing.T) {
 
 	ctx := context.Background()
 	snap := &Snapshot{
-		ZoneID:     "brest-bts",
+		ZoneID:     "brest",
 		CapturedAt: time.Now().UTC(),
 		CarsCount:  0,
 	}
@@ -127,12 +127,12 @@ func TestInsertVehicles_EmptySlice(t *testing.T) {
 		t.Fatalf("InsertSnapshot: %v", err)
 	}
 
-	err = store.InsertVehicles(ctx, id, "brest-bts", nil)
+	err = store.InsertVehicles(ctx, id, "brest", nil)
 	if err != nil {
 		t.Fatalf("InsertVehicles with nil: %v", err)
 	}
 
-	err = store.InsertVehicles(ctx, id, "brest-bts", []Vehicle{})
+	err = store.InsertVehicles(ctx, id, "brest", []Vehicle{})
 	if err != nil {
 		t.Fatalf("InsertVehicles with empty slice: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestInsertCrawlResult_EmptyVehicles(t *testing.T) {
 
 	ctx := context.Background()
 	snap := &Snapshot{
-		ZoneID:     "brest-bts",
+		ZoneID:     "brest",
 		CapturedAt: time.Now().UTC(),
 		CarsCount:  0,
 	}

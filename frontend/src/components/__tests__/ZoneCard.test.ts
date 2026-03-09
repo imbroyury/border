@@ -14,7 +14,7 @@ function makeRouter() {
 }
 
 const zone = {
-  id: 'brest-bts',
+  id: 'brest',
   name: 'Брест',
   border: 'BY-PL',
   cars_count: 42,
@@ -60,7 +60,7 @@ describe('ZoneCard', () => {
     })
 
     const link = wrapper.find('a')
-    expect(link.attributes('href')).toBe('/zone/brest-bts')
+    expect(link.attributes('href')).toBe('/zone/brest')
   })
 
   it('shows "No data" for epoch timestamp', async () => {

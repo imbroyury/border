@@ -4,7 +4,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import DashboardView from '../DashboardView.vue'
 
 const mockZones = [
-  { id: 'brest-bts', name: 'Брест', border: 'BY-PL', cars_count: 42, last_captured: '2026-03-09T12:00:00Z' },
+  { id: 'brest', name: 'Брест', border: 'BY-PL', cars_count: 42, last_captured: '2026-03-09T12:00:00Z' },
   { id: 'bruzgi', name: 'Брузги', border: 'BY-PL', cars_count: 10, last_captured: '2026-03-09T12:00:00Z' },
 ]
 

@@ -28,7 +28,7 @@ function calledUrlString(): string {
 
 describe('fetchZones', () => {
   it('returns zones on success', async () => {
-    const zones = [{ id: 'brest-bts', name: 'Брест', border: 'BY-PL', cars_count: 42, last_captured: '2026-01-01T00:00:00Z' }]
+    const zones = [{ id: 'brest', name: 'Брест', border: 'BY-PL', cars_count: 42, last_captured: '2026-01-01T00:00:00Z' }]
     mockFetch.mockReturnValue(jsonResponse(zones))
 
     const result = await fetchZones()
@@ -48,10 +48,10 @@ describe('fetchSnapshots', () => {
 
     const from = new Date('2026-01-01T00:00:00Z')
     const to = new Date('2026-01-02T00:00:00Z')
-    await fetchSnapshots('brest-bts', from, to)
+    await fetchSnapshots('brest', from, to)
 
     const url = calledUrlString()
-    expect(url).toContain('/api/zones/brest-bts/snapshots')
+    expect(url).toContain('/api/zones/brest/snapshots')
     expect(url).toContain('from=' + encodeURIComponent(from.toISOString()))
     expect(url).toContain('to=' + encodeURIComponent(to.toISOString()))
   })

@@ -13,7 +13,7 @@ import (
 var SlugToCheckpointID = map[string]string{
 	"benyakoni":       "53d94097-2b34-11ec-8467-ac1f6bf889c0",
 	"berestovitsa":    "7e46a2d1-ab2f-11ec-bafb-ac1f6bf889c1",
-	"brest-bts":       "a9173a85-3fc0-424c-84f0-defa632481e4",
+	"brest":           "a9173a85-3fc0-424c-84f0-defa632481e4",
 	"grigorovshchina": "ffe81c11-00d6-11e8-a967-b0dd44bde851",
 	"kamenny-log":     "b60677d4-8a00-4f93-a781-e129e1692a03",
 	"kozlovichi":      "98b5be92-d3a5-4ba2-9106-76eb4eb3df49",

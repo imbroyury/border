@@ -53,8 +53,8 @@ func TestGetZones_Success(t *testing.T) {
 	now := time.Now().UTC()
 	mock := &mockDB{
 		zones: []db.ZoneWithCount{
-			{Zone: db.Zone{ID: "brest-bts", Name: "Брест", Border: "BY-PL"}, CarsCount: 42, LastCaptured: now},
-			{Zone: db.Zone{ID: "bruzgi-bts", Name: "Брузги", Border: "BY-PL"}, CarsCount: 10, LastCaptured: now},
+			{Zone: db.Zone{ID: "brest", Name: "Брест", Border: "BY-PL"}, CarsCount: 42, LastCaptured: now},
+			{Zone: db.Zone{ID: "bruzgi", Name: "Брузги", Border: "BY-PL"}, CarsCount: 10, LastCaptured: now},
 		},
 	}
 	srv := newTestServer(mock)
@@ -80,8 +80,8 @@ func TestGetZones_Success(t *testing.T) {
 	if len(zones) != 2 {
 		t.Fatalf("expected 2 zones, got %d", len(zones))
 	}
-	if zones[0].ID != "brest-bts" {
-		t.Errorf("expected brest-bts, got %s", zones[0].ID)
+	if zones[0].ID != "brest" {
+		t.Errorf("expected brest, got %s", zones[0].ID)
 	}
 }
 
@@ -116,7 +116,7 @@ func TestGetSnapshots_Success(t *testing.T) {
 
 	from := now.Add(-time.Hour).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?from=" + from + "&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?from=" + from + "&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestGetSnapshots_MissingFrom(t *testing.T) {
 	defer srv.Close()
 
 	to := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestGetSnapshots_MissingTo(t *testing.T) {
 	defer srv.Close()
 
 	from := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?from=" + from)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?from=" + from)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestGetSnapshots_InvalidFromDate(t *testing.T) {
 	defer srv.Close()
 
 	to := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?from=not-a-date&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?from=not-a-date&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestGetSnapshots_InvalidToDate(t *testing.T) {
 	defer srv.Close()
 
 	from := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?from=" + from + "&to=bad-date")
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?from=" + from + "&to=bad-date")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestGetSnapshots_DBError(t *testing.T) {
 
 	from := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/snapshots?from=" + from + "&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/snapshots?from=" + from + "&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestGetCurrentVehicles_Success(t *testing.T) {
 	srv := newTestServer(mock)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles")
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestGetCurrentVehicles_DBError(t *testing.T) {
 	srv := newTestServer(mock)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles")
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestGetVehicleHistory_Success(t *testing.T) {
 
 	from := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?from=" + from + "&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=" + from + "&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestGetVehicleHistory_MissingFrom(t *testing.T) {
 	defer srv.Close()
 
 	to := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestGetVehicleHistory_MissingTo(t *testing.T) {
 	defer srv.Close()
 
 	from := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?from=" + from)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=" + from)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestGetVehicleHistory_InvalidFromDate(t *testing.T) {
 	defer srv.Close()
 
 	to := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?from=invalid&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=invalid&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestGetVehicleHistory_InvalidToDate(t *testing.T) {
 	defer srv.Close()
 
 	from := time.Now().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?from=" + from + "&to=invalid")
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=" + from + "&to=invalid")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestGetVehicleHistory_DBError(t *testing.T) {
 
 	from := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
-	resp, err := http.Get(srv.URL + "/api/zones/brest-bts/vehicles/history?from=" + from + "&to=" + to)
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=" + from + "&to=" + to)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
