@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import VehicleTable from '../VehicleTable.vue'
+import type { Vehicle } from '../../api/types'
 
-const vehicles = [
+const vehicles: Vehicle[] = [
   {
     reg_number: 'AB1234',
     queue_type: 'live',
@@ -43,35 +44,40 @@ describe('VehicleTable', () => {
 
     // Default sort is registered_at ascending, so CD5678 (08:00) comes first
     let rows = wrapper.findAll('tbody tr')
-    expect(rows[0].text()).toContain('CD5678')
+    expect(rows[0]!.text()).toContain('CD5678')
 
     // Click reg_number header to sort by it
-    const regHeader = wrapper.findAll('th').find((th) => th.text().includes('Reg Number'))!
-    await regHeader.trigger('click')
+    const regHeader = wrapper.findAll('th').find((th) => th.text().includes('Reg Number'))
+    await regHeader!.trigger('click')
 
     rows = wrapper.findAll('tbody tr')
-    expect(rows[0].text()).toContain('AB1234')
+    expect(rows[0]!.text()).toContain('AB1234')
   })
 
   it('toggles sort direction on second click', async () => {
     const wrapper = mount(VehicleTable, { props: { vehicles } })
 
-    const regHeader = wrapper.findAll('th').find((th) => th.text().includes('Reg Number'))!
-    await regHeader.trigger('click') // asc
-    await regHeader.trigger('click') // desc
+    const regHeader = wrapper.findAll('th').find((th) => th.text().includes('Reg Number'))
+    await regHeader!.trigger('click') // asc
+    await regHeader!.trigger('click') // desc
 
     const rows = wrapper.findAll('tbody tr')
-    expect(rows[0].text()).toContain('CD5678')
+    expect(rows[0]!.text()).toContain('CD5678')
   })
 
   it('shows dash for zero timestamp', () => {
+    const zeroVehicle: Vehicle = {
+      reg_number: 'AB1234',
+      queue_type: 'live',
+      status: 'in_queue',
+      registered_at: '2026-03-09T10:00:00Z',
+      status_changed_at: '1970-01-01T00:00:00Z',
+    }
     const wrapper = mount(VehicleTable, {
-      props: {
-        vehicles: [{ ...vehicles[0], status_changed_at: '1970-01-01T00:00:00Z' }],
-      },
+      props: { vehicles: [zeroVehicle] },
     })
     const cells = wrapper.findAll('td')
-    const lastCell = cells[cells.length - 1]
+    const lastCell = cells[cells.length - 1]!
     expect(lastCell.text()).toBe('-')
   })
 })
