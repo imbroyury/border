@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import type { SnapshotPoint, Vehicle } from '../api/types'
-import { fetchSnapshots, fetchVehicles } from '../api/client'
+import type { SnapshotPoint, Vehicle, Zone } from '../api/types'
+import { fetchZones, fetchSnapshots, fetchVehicles } from '../api/client'
 import { DURATION_PRESETS } from '../api/durations'
 import QueueChart from '../components/QueueChart.vue'
 import DurationPicker from '../components/DurationPicker.vue'
@@ -9,6 +9,7 @@ import VehicleTable from '../components/VehicleTable.vue'
 
 const props = defineProps<{ id: string }>()
 
+const zone = ref<Zone | null>(null)
 const selectedDuration = ref('1d')
 const snapshots = ref<SnapshotPoint[]>([])
 const vehicles = ref<Vehicle[]>([])
@@ -50,6 +51,15 @@ async function loadVehicles() {
   }
 }
 
+async function loadZone() {
+  try {
+    const zones = await fetchZones()
+    zone.value = zones.find((z) => z.id === props.id) ?? null
+  } catch {
+    // non-critical, fallback to id
+  }
+}
+
 function loadAll() {
   loadSnapshots()
   loadVehicles()
@@ -60,6 +70,7 @@ watch(selectedDuration, () => {
 })
 
 onMounted(() => {
+  loadZone()
   loadAll()
   intervalId = setInterval(loadAll, 60_000)
 })
@@ -73,7 +84,7 @@ onUnmounted(() => {
   <div class="zone-detail">
     <div class="zone-header">
       <router-link to="/" class="back-link">&larr; Back</router-link>
-      <h1 class="zone-title">{{ id }}</h1>
+      <h1 class="zone-title">{{ zone?.name ?? id }}</h1>
     </div>
 
     <div class="chart-section">
