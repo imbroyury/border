@@ -212,6 +212,8 @@ func vehicleStatusString(status int) string {
 		return "called"
 	case 4:
 		return "passed"
+	case 9:
+		return "cancelled"
 	default:
 		return fmt.Sprintf("unknown_%d", status)
 	}

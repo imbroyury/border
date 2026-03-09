@@ -303,6 +303,7 @@ func TestVehicleStatusString(t *testing.T) {
 		{2, "in_queue"},
 		{3, "called"},
 		{4, "passed"},
+		{9, "cancelled"},
 		{99, "unknown_99"},
 	}
 	for _, tt := range tests {
