@@ -27,8 +27,9 @@ services:
 
   crawler:
     build:
-      context: .
-      dockerfile: crawler/Dockerfile
+      context: ./crawler
+      additional_contexts:
+        migrations: ./migrations
     environment:
       DATABASE_URL: postgres://border:${POSTGRES_PASSWORD:-border}@postgres:5432/border?sslmode=disable
       CRAWL_INTERVAL: ${CRAWL_INTERVAL:-15m}
