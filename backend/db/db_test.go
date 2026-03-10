@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -11,16 +13,26 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+func upMigrations(t *testing.T) []string {
+	t.Helper()
+	matches, err := filepath.Glob("../../migrations/*up.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatal("no migration files found")
+	}
+	sort.Strings(matches)
+	return matches
+}
+
 func setupTestDB(t *testing.T) *DB {
 	t.Helper()
 	ctx := context.Background()
 
 	pgContainer, err := postgres.Run(ctx,
 		"postgres:18-alpine",
-		postgres.WithInitScripts(
-			"../../migrations/000001_init.up.sql",
-			"../../migrations/000002_seed_zones.up.sql",
-		),
+		postgres.WithInitScripts(upMigrations(t)...),
 		postgres.WithDatabase("border_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
