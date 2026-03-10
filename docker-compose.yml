@@ -15,23 +15,14 @@ services:
       timeout: 3s
       retries: 5
 
-  migrate:
-    image: migrate/migrate:v4.18.2
-    volumes:
-      - ./migrations:/migrations
-    command: ["-path", "/migrations", "-database", "postgres://border:${POSTGRES_PASSWORD:-border}@postgres:5432/border?sslmode=disable", "up"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   backend:
     build: ./backend
     environment:
       DATABASE_URL: postgres://border:${POSTGRES_PASSWORD:-border}@postgres:5432/border?sslmode=disable
       LISTEN_ADDR: ":8080"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   crawler:
@@ -40,8 +31,8 @@ services:
       DATABASE_URL: postgres://border:${POSTGRES_PASSWORD:-border}@postgres:5432/border?sslmode=disable
       CRAWL_INTERVAL: ${CRAWL_INTERVAL:-15m}
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:

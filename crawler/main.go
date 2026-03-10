@@ -39,6 +39,11 @@ func main() {
 		cancel()
 	}()
 
+	if err := runMigrations(databaseURL); err != nil {
+		slog.Error("failed to run migrations", "error", err)
+		os.Exit(1)
+	}
+
 	store, err := storage.New(ctx, databaseURL)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
