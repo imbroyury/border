@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -131,14 +132,27 @@ func crawlZone(ctx context.Context, client *scraper.Client, store *storage.Store
 		})
 	}
 
-	if err := store.InsertCrawlResult(ctx, snap, vehicles); err != nil {
+	prevStatuses, err := store.GetLatestVehicleStatuses(ctx, entry.Slug)
+	if err != nil {
+		return fmt.Errorf("get latest vehicle statuses: %w", err)
+	}
+
+	var changed []storage.Vehicle
+	for _, v := range vehicles {
+		if prev, ok := prevStatuses[v.RegNumber]; !ok || prev != v.Status {
+			changed = append(changed, v)
+		}
+	}
+
+	if err := store.InsertCrawlResult(ctx, snap, changed); err != nil {
 		return err
 	}
 
 	slog.Info("stored zone data",
 		"zone", entry.Slug,
 		"cars_count", entry.CarsCount,
-		"vehicles", len(vehicles),
+		"vehicles_total", len(vehicles),
+		"vehicles_stored", len(changed),
 		"sent_last_hour", detail.SentLastHour,
 		"sent_last_24h", detail.SentLast24h,
 	)

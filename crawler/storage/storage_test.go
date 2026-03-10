@@ -292,6 +292,105 @@ func TestInsertCrawlResult_InvalidZone(t *testing.T) {
 	}
 }
 
+func TestGetLatestVehicleStatuses_NoSnapshots(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	statuses, err := store.GetLatestVehicleStatuses(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetLatestVehicleStatuses: %v", err)
+	}
+	if len(statuses) != 0 {
+		t.Errorf("expected empty map, got %v", statuses)
+	}
+}
+
+func TestGetLatestVehicleStatuses_ReturnsLatestSnapshotOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	// First (older) snapshot with vehicle AB1234 as "in_queue".
+	err := store.InsertCrawlResult(ctx, &Snapshot{
+		ZoneID: "brest", CapturedAt: now.Add(-time.Hour), CarsCount: 1,
+	}, []Vehicle{
+		{ZoneID: "brest", RegNumber: "AB1234", QueueType: "live", Status: "in_queue"},
+	})
+	if err != nil {
+		t.Fatalf("InsertCrawlResult 1: %v", err)
+	}
+
+	// Second (latest) snapshot with AB1234 now "called".
+	err = store.InsertCrawlResult(ctx, &Snapshot{
+		ZoneID: "brest", CapturedAt: now, CarsCount: 1,
+	}, []Vehicle{
+		{ZoneID: "brest", RegNumber: "AB1234", QueueType: "live", Status: "called"},
+	})
+	if err != nil {
+		t.Fatalf("InsertCrawlResult 2: %v", err)
+	}
+
+	statuses, err := store.GetLatestVehicleStatuses(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetLatestVehicleStatuses: %v", err)
+	}
+	if got, want := statuses["AB1234"], "called"; got != want {
+		t.Errorf("AB1234 status: got %q, want %q", got, want)
+	}
+	if len(statuses) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(statuses))
+	}
+}
+
+func TestGetLatestVehicleStatuses_EmptyVehiclesInLatestSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	// First snapshot has a vehicle.
+	err := store.InsertCrawlResult(ctx, &Snapshot{
+		ZoneID: "brest", CapturedAt: now.Add(-time.Hour), CarsCount: 1,
+	}, []Vehicle{
+		{ZoneID: "brest", RegNumber: "XY9999", QueueType: "live", Status: "in_queue"},
+	})
+	if err != nil {
+		t.Fatalf("InsertCrawlResult 1: %v", err)
+	}
+
+	// Latest snapshot is empty (no vehicles).
+	err = store.InsertCrawlResult(ctx, &Snapshot{
+		ZoneID: "brest", CapturedAt: now, CarsCount: 0,
+	}, nil)
+	if err != nil {
+		t.Fatalf("InsertCrawlResult 2: %v", err)
+	}
+
+	statuses, err := store.GetLatestVehicleStatuses(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetLatestVehicleStatuses: %v", err)
+	}
+	if len(statuses) != 0 {
+		t.Errorf("expected empty map, got %v", statuses)
+	}
+}
+
 func TestInsertSnapshot_InvalidZone(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

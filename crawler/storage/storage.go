@@ -107,6 +107,36 @@ func (s *Store) InsertVehicles(ctx context.Context, snapshotID int64, zoneID str
 	return nil
 }
 
+// GetLatestVehicleStatuses returns reg_number→status for the most recent snapshot of the zone.
+// Returns an empty map (no error) if no snapshots exist yet.
+func (s *Store) GetLatestVehicleStatuses(ctx context.Context, zoneID string) (map[string]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT v.reg_number, v.status
+		 FROM vehicles v
+		 JOIN snapshots s ON s.id = v.snapshot_id
+		 WHERE v.zone_id = $1
+		   AND s.id = (SELECT id FROM snapshots WHERE zone_id = $1 ORDER BY captured_at DESC LIMIT 1)`,
+		zoneID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query latest vehicle statuses: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var regNumber, status string
+		if err := rows.Scan(&regNumber, &status); err != nil {
+			return nil, fmt.Errorf("scan vehicle status: %w", err)
+		}
+		result[regNumber] = status
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vehicle statuses: %w", err)
+	}
+	return result, nil
+}
+
 // InsertCrawlResult inserts a snapshot and its vehicles in a single transaction.
 func (s *Store) InsertCrawlResult(ctx context.Context, snap *Snapshot, vehicles []Vehicle) error {
 	tx, err := s.pool.Begin(ctx)
