@@ -26,6 +26,8 @@ const props = defineProps<{ data: SnapshotPoint[] }>()
 function makeOption(title: string, field: keyof SnapshotPoint, color: string, areaColor?: string) {
   return computed(() => {
     const times = props.data.map((p) => new Date(p.captured_at).toLocaleString())
+    const dataMax = Math.max(0, ...props.data.map((p) => p[field] as number))
+    const yMax = dataMax < 20 ? 20 : undefined
     return {
       title: {
         text: title,
@@ -50,6 +52,8 @@ function makeOption(title: string, field: keyof SnapshotPoint, color: string, ar
       },
       yAxis: {
         type: 'value',
+        min: 0,
+        max: yMax,
         axisLabel: { color: '#888' },
         splitLine: { lineStyle: { color: '#2a2a4a' } },
       },
