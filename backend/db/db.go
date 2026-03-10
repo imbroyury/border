@@ -62,10 +62,11 @@ type CrossingHistory struct {
 
 // VehicleSearchResult represents a vehicle found by search.
 type VehicleSearchResult struct {
-	RegNumber string    `json:"reg_number"`
-	ZoneID    string    `json:"zone_id"`
-	Status    string    `json:"status"`
-	LastSeen  time.Time `json:"last_seen"`
+	RegNumber     string    `json:"reg_number"`
+	ZoneID        string    `json:"zone_id"`
+	Status        string    `json:"status"`
+	LastSeen      time.Time `json:"last_seen"`
+	CrossingCount int       `json:"crossing_count"`
 }
 
 // VehicleListParams holds parameters for the ListVehicles query.
@@ -369,9 +370,10 @@ func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zon
 func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*VehicleListResult, error) {
 	// Whitelist sort columns
 	sortColumns := map[string]string{
-		"reg_number":   "reg_number",
-		"last_seen_at": "last_seen_at",
-		"zone_id":      "zone_id",
+		"reg_number":     "reg_number",
+		"last_seen_at":   "last_seen_at",
+		"zone_id":        "zone_id",
+		"crossing_count": "crossing_count",
 	}
 	sortCol := "last_seen_at"
 	if col, ok := sortColumns[params.Sort]; ok {
@@ -401,9 +403,18 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 			WHERE ($1 = '' OR reg_number ILIKE '%%' || $1 || '%%')
 			  AND ($2 = '' OR zone_id = $2)
 			ORDER BY reg_number, zone_id, last_seen_at DESC
+		),
+		counts AS (
+			SELECT reg_number, COUNT(*) AS crossing_count
+			FROM vehicle_crossings
+			WHERE ($1 = '' OR reg_number ILIKE '%%' || $1 || '%%')
+			  AND ($2 = '' OR zone_id = $2)
+			GROUP BY reg_number
 		)
-		SELECT reg_number, zone_id, current_status, last_seen_at, COUNT(*) OVER() AS total
-		FROM latest
+		SELECT l.reg_number, l.zone_id, l.current_status, l.last_seen_at,
+		       COALESCE(c.crossing_count, 0), COUNT(*) OVER() AS total
+		FROM latest l
+		LEFT JOIN counts c ON c.reg_number = l.reg_number
 		ORDER BY %s %s
 		LIMIT $3 OFFSET $4`, sortCol, order)
 
@@ -417,7 +428,7 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 	var total int
 	for rows.Next() {
 		var r VehicleSearchResult
-		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen, &total); err != nil {
+		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen, &r.CrossingCount, &total); err != nil {
 			return nil, fmt.Errorf("scan vehicle list result: %w", err)
 		}
 		results = append(results, r)

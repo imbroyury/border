@@ -173,6 +173,9 @@ onMounted(async () => {
                 Zone <span>{{ sortIcon('zone_id') }}</span>
               </th>
               <th>Status</th>
+              <th class="sortable" @click="toggleSort('crossing_count')">
+                Crossings <span>{{ sortIcon('crossing_count') }}</span>
+              </th>
               <th class="sortable" @click="toggleSort('last_seen_at')">
                 Last Seen <span>{{ sortIcon('last_seen_at') }}</span>
               </th>
@@ -188,6 +191,7 @@ onMounted(async () => {
               <td class="mono">{{ v.reg_number }}</td>
               <td>{{ v.zone_id }}</td>
               <td><span :class="['status-badge', statusClass(v.status)]">{{ v.status }}</span></td>
+              <td>{{ v.crossing_count }}</td>
               <td>{{ formatTime(v.last_seen) }}</td>
             </tr>
           </tbody>

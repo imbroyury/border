@@ -44,6 +44,7 @@ export interface VehicleSearchResult {
   zone_id: string
   status: string
   last_seen: string
+  crossing_count: number
 }
 
 export interface VehicleListResponse {
