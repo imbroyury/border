@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { CrossingHistory } from '../api/types'
-import { fetchSingleVehicleHistory } from '../api/client'
+import { fetchGlobalVehicleHistory } from '../api/client'
 
-const props = defineProps<{ zoneId: string; regNumber: string }>()
-const emit = defineEmits<{ close: [] }>()
+const props = defineProps<{ regNumber: string }>()
 
 const crossings = ref<CrossingHistory[]>([])
 const loading = ref(true)
@@ -16,8 +15,7 @@ async function load() {
     loading.value = true
     error.value = ''
     expanded.value = new Set()
-    crossings.value = await fetchSingleVehicleHistory(props.zoneId, props.regNumber)
-    // Auto-expand the active crossing if present
+    crossings.value = await fetchGlobalVehicleHistory(props.regNumber)
     for (const c of crossings.value) {
       if (c.is_active) expanded.value.add(c.crossing_id)
     }
@@ -69,13 +67,13 @@ function statusClass(status: string): string {
 </script>
 
 <template>
-  <div class="history-panel">
-    <div class="panel-header">
-      <h3>History: <span class="mono">{{ regNumber }}</span></h3>
-      <button class="close-btn" @click="emit('close')">&times;</button>
+  <div class="vehicle-history">
+    <div class="history-header">
+      <router-link to="/vehicles" class="back-link">&larr; Back</router-link>
+      <h1 class="page-title mono">{{ regNumber }}</h1>
     </div>
 
-    <p v-if="loading" class="status">Loading...</p>
+    <p v-if="loading" class="status">Loading history...</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
     <p v-else-if="crossings.length === 0" class="status">No history found</p>
 
@@ -90,7 +88,7 @@ function statusClass(status: string): string {
         >
           <div class="crossing-header" @click="toggleExpanded(c.crossing_id)">
             <div class="crossing-meta">
-              <span class="zone-badge">{{ c.zone_id }}</span>
+              <router-link :to="`/zone/${c.zone_id}`" class="zone-link" @click.stop>{{ c.zone_id }}</router-link>
               <span class="date-range">
                 {{ formatDate(c.first_seen_at) }} – {{ c.is_active ? 'present' : formatDate(c.last_seen_at) }}
               </span>
@@ -98,7 +96,7 @@ function statusClass(status: string): string {
             <div class="crossing-right">
               <span :class="['status-badge', statusClass(c.current_status)]">{{ c.current_status }}</span>
               <span v-if="c.is_active" class="active-indicator">active</span>
-              <span class="expand-icon">{{ expanded.has(c.crossing_id) ? '▲' : '▼' }}</span>
+              <span class="expand-icon">{{ expanded.has(c.crossing_id) ? '\u25B2' : '\u25BC' }}</span>
             </div>
           </div>
 
@@ -118,38 +116,19 @@ function statusClass(status: string): string {
 </template>
 
 <style scoped>
-.history-panel {
-  border: 1px solid #2a2a4a;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-  background: rgba(30, 30, 60, 0.5);
-}
-
-.panel-header {
+.history-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-.panel-header h3 {
-  font-size: 1rem;
-  margin: 0;
+.back-link {
+  font-size: 0.9rem;
 }
 
-.close-btn {
-  background: none;
-  border: none;
-  color: #aaa;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0 0.3rem;
-  line-height: 1;
-}
-
-.close-btn:hover {
-  color: #fff;
+.page-title {
+  font-size: 1.4rem;
 }
 
 .mono {
@@ -200,10 +179,15 @@ function statusClass(status: string): string {
   min-width: 0;
 }
 
-.zone-badge {
+.zone-link {
   color: #7c8cf5;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: nowrap;
+  text-decoration: none;
+}
+
+.zone-link:hover {
+  text-decoration: underline;
 }
 
 .date-range {
@@ -289,7 +273,7 @@ function statusClass(status: string): string {
 }
 
 .status {
-  padding: 1rem;
+  padding: 2rem;
   text-align: center;
   color: #aaa;
 }

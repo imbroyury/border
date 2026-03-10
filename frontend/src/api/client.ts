@@ -1,4 +1,4 @@
-import type { Zone, SnapshotPoint, Vehicle, CrossingHistory, VehicleSearchResult } from './types'
+import type { Zone, SnapshotPoint, Vehicle, CrossingHistory, VehicleListResponse } from './types'
 
 async function get<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(path, window.location.origin)
@@ -40,12 +40,8 @@ export function fetchSingleVehicleHistory(zoneId: string, regNumber: string): Pr
   return get(`/api/zones/${zoneId}/vehicles/${encodeURIComponent(regNumber)}/history`)
 }
 
-export function searchVehicles(query: string): Promise<VehicleSearchResult[]> {
-  return get('/api/vehicles/search', { q: query })
-}
-
-export function fetchRecentVehicles(): Promise<VehicleSearchResult[]> {
-  return get('/api/vehicles/recent')
+export function fetchVehicleList(params: Record<string, string>): Promise<VehicleListResponse> {
+  return get('/api/vehicles', params)
 }
 
 export function fetchGlobalVehicleHistory(regNumber: string): Promise<CrossingHistory[]> {

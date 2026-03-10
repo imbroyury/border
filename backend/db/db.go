@@ -68,6 +68,22 @@ type VehicleSearchResult struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
+// VehicleListParams holds parameters for the ListVehicles query.
+type VehicleListParams struct {
+	Query  string // search filter (ILIKE), empty = no filter
+	ZoneID string // zone filter, empty = all zones
+	Sort   string // column: "reg_number" | "last_seen_at" | "zone_id" (default "last_seen_at")
+	Order  string // "asc" | "desc" (default "desc")
+	Limit  int    // 1-100, default 50
+	Offset int    // default 0
+}
+
+// VehicleListResult holds paginated vehicle list results.
+type VehicleListResult struct {
+	Data  []VehicleSearchResult `json:"data"`
+	Total int                   `json:"total"`
+}
+
 // DB wraps a pgx connection pool.
 type DB struct {
 	Pool *pgxpool.Pool
@@ -349,26 +365,60 @@ func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zon
 	return crossings, nil
 }
 
-// SearchVehicles searches for vehicles by reg number across all zones.
-func (d *DB) SearchVehicles(ctx context.Context, query string) ([]VehicleSearchResult, error) {
-	sql := `
-		SELECT DISTINCT ON (reg_number, zone_id) reg_number, zone_id, current_status, last_seen_at
-		FROM vehicle_crossings
-		WHERE reg_number ILIKE $1
-		ORDER BY reg_number, zone_id, last_seen_at DESC
-		LIMIT 50`
+// ListVehicles returns a paginated, sortable, filterable list of vehicles.
+func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*VehicleListResult, error) {
+	// Whitelist sort columns
+	sortColumns := map[string]string{
+		"reg_number":   "reg_number",
+		"last_seen_at": "last_seen_at",
+		"zone_id":      "zone_id",
+	}
+	sortCol := "last_seen_at"
+	if col, ok := sortColumns[params.Sort]; ok {
+		sortCol = col
+	}
 
-	rows, err := d.Pool.Query(ctx, sql, "%"+query+"%")
+	order := "DESC"
+	if params.Order == "asc" {
+		order = "ASC"
+	}
+
+	limit := params.Limit
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := fmt.Sprintf(`
+		WITH latest AS (
+			SELECT DISTINCT ON (reg_number, zone_id)
+			       reg_number, zone_id, current_status, last_seen_at
+			FROM vehicle_crossings
+			WHERE ($1 = '' OR reg_number ILIKE '%%' || $1 || '%%')
+			  AND ($2 = '' OR zone_id = $2)
+			ORDER BY reg_number, zone_id, last_seen_at DESC
+		)
+		SELECT reg_number, zone_id, current_status, last_seen_at, COUNT(*) OVER() AS total
+		FROM latest
+		ORDER BY %s %s
+		LIMIT $3 OFFSET $4`, sortCol, order)
+
+	rows, err := d.Pool.Query(ctx, query, params.Query, params.ZoneID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("search vehicles: %w", err)
+		return nil, fmt.Errorf("list vehicles: %w", err)
 	}
 	defer rows.Close()
 
 	var results []VehicleSearchResult
+	var total int
 	for rows.Next() {
 		var r VehicleSearchResult
-		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen); err != nil {
-			return nil, fmt.Errorf("scan vehicle search result: %w", err)
+		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen, &total); err != nil {
+			return nil, fmt.Errorf("scan vehicle list result: %w", err)
 		}
 		results = append(results, r)
 	}
@@ -378,42 +428,7 @@ func (d *DB) SearchVehicles(ctx context.Context, query string) ([]VehicleSearchR
 	if results == nil {
 		results = []VehicleSearchResult{}
 	}
-	return results, nil
-}
-
-// GetRecentVehicles returns the most recently seen vehicles across all zones.
-func (d *DB) GetRecentVehicles(ctx context.Context) ([]VehicleSearchResult, error) {
-	sql := `
-		SELECT reg_number, zone_id, status, last_seen FROM (
-		    SELECT DISTINCT ON (reg_number)
-		           reg_number, zone_id, current_status AS status, last_seen_at AS last_seen
-		    FROM vehicle_crossings
-		    ORDER BY reg_number, last_seen_at DESC
-		) sub
-		ORDER BY last_seen DESC
-		LIMIT 50`
-
-	rows, err := d.Pool.Query(ctx, sql)
-	if err != nil {
-		return nil, fmt.Errorf("query recent vehicles: %w", err)
-	}
-	defer rows.Close()
-
-	var results []VehicleSearchResult
-	for rows.Next() {
-		var r VehicleSearchResult
-		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen); err != nil {
-			return nil, fmt.Errorf("scan recent vehicle: %w", err)
-		}
-		results = append(results, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
-	}
-	if results == nil {
-		results = []VehicleSearchResult{}
-	}
-	return results, nil
+	return &VehicleListResult{Data: results, Total: total}, nil
 }
 
 // ScanZoneWithCount is a helper for tests — not exported, pgx uses rows.Scan directly.

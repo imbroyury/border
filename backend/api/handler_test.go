@@ -26,10 +26,8 @@ type mockDB struct {
 	historyErr          error
 	crossingHistory     []db.CrossingHistory
 	crossingHistoryErr  error
-	searchResults       []db.VehicleSearchResult
-	searchErr           error
-	recentVehicles      []db.VehicleSearchResult
-	recentVehiclesErr   error
+	vehicleListResult   *db.VehicleListResult
+	vehicleListErr      error
 }
 
 func (m *mockDB) GetZones(_ context.Context) ([]db.ZoneWithCount, error) {
@@ -52,12 +50,8 @@ func (m *mockDB) GetVehicleHistoryGrouped(_ context.Context, _, _ string) ([]db.
 	return m.crossingHistory, m.crossingHistoryErr
 }
 
-func (m *mockDB) SearchVehicles(_ context.Context, _ string) ([]db.VehicleSearchResult, error) {
-	return m.searchResults, m.searchErr
-}
-
-func (m *mockDB) GetRecentVehicles(_ context.Context) ([]db.VehicleSearchResult, error) {
-	return m.recentVehicles, m.recentVehiclesErr
+func (m *mockDB) ListVehicles(_ context.Context, _ db.VehicleListParams) (*db.VehicleListResult, error) {
+	return m.vehicleListResult, m.vehicleListErr
 }
 
 func newTestServer(mock *mockDB) *httptest.Server {
@@ -517,6 +511,58 @@ func TestGetGlobalVehicleHistory_DBError(t *testing.T) {
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/api/vehicles/AB1234/history")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestListVehicles_Success(t *testing.T) {
+	now := time.Now().UTC()
+	mock := &mockDB{
+		vehicleListResult: &db.VehicleListResult{
+			Data: []db.VehicleSearchResult{
+				{RegNumber: "AB1234-7", ZoneID: "brest", Status: "in_queue", LastSeen: now},
+				{RegNumber: "CD5678-3", ZoneID: "bruzgi", Status: "passed", LastSeen: now.Add(-time.Hour)},
+			},
+			Total: 2,
+		},
+	}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/vehicles?q=AB&zone=brest&sort=reg_number&order=asc&limit=10&offset=0")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result db.VehicleListResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Data) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result.Data))
+	}
+	if result.Total != 2 {
+		t.Errorf("expected total 2, got %d", result.Total)
+	}
+}
+
+func TestListVehicles_DBError(t *testing.T) {
+	mock := &mockDB{vehicleListErr: errors.New("db error")}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/vehicles")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

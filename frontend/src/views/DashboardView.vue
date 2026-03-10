@@ -66,7 +66,7 @@ onUnmounted(() => {
   <div class="dashboard">
     <div class="dashboard-header">
       <h1 class="dashboard-title">Border Crossings</h1>
-      <router-link to="/vehicles" class="search-link">Search vehicles</router-link>
+      <router-link to="/vehicles" class="search-link">Vehicles</router-link>
     </div>
 
     <p v-if="loading" class="status">Loading...</p>

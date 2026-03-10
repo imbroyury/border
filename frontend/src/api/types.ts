@@ -46,6 +46,11 @@ export interface VehicleSearchResult {
   last_seen: string
 }
 
+export interface VehicleListResponse {
+  data: VehicleSearchResult[]
+  total: number
+}
+
 export interface DurationPreset {
   label: string
   value: string

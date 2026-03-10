@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import type { SnapshotPoint, Vehicle, Zone } from '../api/types'
 import { fetchZones, fetchSnapshots, fetchVehicles } from '../api/client'
 import { DURATION_PRESETS } from '../api/durations'
 import QueueChart from '../components/QueueChart.vue'
 import DurationPicker from '../components/DurationPicker.vue'
 import VehicleTable from '../components/VehicleTable.vue'
-import VehicleHistoryPanel from '../components/VehicleHistoryPanel.vue'
 
 const props = defineProps<{ id: string }>()
+const router = useRouter()
 
 const zone = ref<Zone | null>(null)
 const selectedDuration = ref('1d')
@@ -17,7 +18,10 @@ const vehicles = ref<Vehicle[]>([])
 const loadingChart = ref(true)
 const loadingVehicles = ref(true)
 const error = ref('')
-const selectedVehicle = ref<string | null>(null)
+
+function onVehicleSelect(regNumber: string) {
+  router.push({ name: 'vehicle-history', params: { regNumber } })
+}
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 
@@ -101,15 +105,9 @@ onUnmounted(() => {
 
     <div class="vehicles-section">
       <h2>Current Vehicles</h2>
-      <VehicleHistoryPanel
-        v-if="selectedVehicle"
-        :zone-id="id"
-        :reg-number="selectedVehicle"
-        @close="selectedVehicle = null"
-      />
       <p v-if="loadingVehicles && vehicles.length === 0" class="status">Loading...</p>
       <p v-else-if="vehicles.length === 0" class="status">No vehicles in queue</p>
-      <VehicleTable v-else :vehicles="vehicles" @select="selectedVehicle = $event" />
+      <VehicleTable v-else :vehicles="vehicles" @select="onVehicleSelect" />
     </div>
   </div>
 </template>

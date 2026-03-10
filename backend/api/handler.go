@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,8 +21,7 @@ type Querier interface {
 	GetCurrentVehicles(ctx context.Context, zoneID string) ([]db.VehicleRow, error)
 	GetVehicleHistory(ctx context.Context, zoneID string, from, to time.Time) ([]db.VehicleRow, error)
 	GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zoneID string) ([]db.CrossingHistory, error)
-	SearchVehicles(ctx context.Context, query string) ([]db.VehicleSearchResult, error)
-	GetRecentVehicles(ctx context.Context) ([]db.VehicleSearchResult, error)
+	ListVehicles(ctx context.Context, params db.VehicleListParams) (*db.VehicleListResult, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -56,8 +56,7 @@ func NewRouter(h *Handler) http.Handler {
 		r.Get("/zones/{id}/vehicles", h.GetCurrentVehicles)
 		r.Get("/zones/{id}/vehicles/history", h.GetVehicleHistory)
 		r.Get("/zones/{id}/vehicles/{regNumber}/history", h.GetSingleVehicleHistory)
-		r.Get("/vehicles/search", h.SearchVehicles)
-		r.Get("/vehicles/recent", h.GetRecentVehicles)
+		r.Get("/vehicles", h.ListVehicles)
 		r.Get("/vehicles/{regNumber}/history", h.GetGlobalVehicleHistory)
 	})
 
@@ -167,30 +166,39 @@ func (h *Handler) GetSingleVehicleHistory(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, crossings)
 }
 
-func (h *Handler) GetRecentVehicles(w http.ResponseWriter, r *http.Request) {
-	results, err := h.db.GetRecentVehicles(r.Context())
+func (h *Handler) ListVehicles(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = n
+		}
+	}
+
+	offset := 0
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			offset = n
+		}
+	}
+
+	params := db.VehicleListParams{
+		Query:  q.Get("q"),
+		ZoneID: q.Get("zone"),
+		Sort:   q.Get("sort"),
+		Order:  q.Get("order"),
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	result, err := h.db.ListVehicles(r.Context(), params)
 	if err != nil {
-		h.logger.Error("get recent vehicles", "error", err)
+		h.logger.Error("list vehicles", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
-	writeJSON(w, http.StatusOK, results)
-}
-
-func (h *Handler) SearchVehicles(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
-	if len(q) < 2 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query must be at least 2 characters"})
-		return
-	}
-
-	results, err := h.db.SearchVehicles(r.Context(), q)
-	if err != nil {
-		h.logger.Error("search vehicles", "error", err, "query", q)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-		return
-	}
-	writeJSON(w, http.StatusOK, results)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) GetGlobalVehicleHistory(w http.ResponseWriter, r *http.Request) {
