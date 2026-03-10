@@ -249,6 +249,7 @@ func (d *DB) GetVehicleHistory(ctx context.Context, zoneID string, from, to time
 // VehicleStatusChange represents a single status observation for a vehicle.
 type VehicleStatusChange struct {
 	CapturedAt      time.Time `json:"captured_at"`
+	LastSeenAt      time.Time `json:"last_seen_at"`
 	Status          string    `json:"status"`
 	QueueType       string    `json:"queue_type"`
 	StatusChangedAt time.Time `json:"status_changed_at"`
@@ -257,12 +258,25 @@ type VehicleStatusChange struct {
 // GetSingleVehicleHistory returns all status observations for a specific vehicle.
 func (d *DB) GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber string) ([]VehicleStatusChange, error) {
 	query := `
-		SELECT s.captured_at, v.status, v.queue_type,
-		       COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z')
-		FROM vehicles v
-		JOIN snapshots s ON s.id = v.snapshot_id
-		WHERE v.zone_id = $1 AND v.reg_number = $2
-		ORDER BY s.captured_at ASC`
+		WITH transitions AS (
+		    SELECT s.captured_at,
+		           v.status,
+		           v.queue_type,
+		           COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z') AS status_changed_at,
+		           LEAD(s.captured_at) OVER (ORDER BY s.captured_at ASC) AS next_transition_at
+		    FROM vehicles v
+		    JOIN snapshots s ON s.id = v.snapshot_id
+		    WHERE v.zone_id = $1 AND v.reg_number = $2
+		)
+		SELECT t.captured_at, t.status, t.queue_type, t.status_changed_at,
+		    COALESCE(
+		        (SELECT s2.captured_at FROM snapshots s2
+		         WHERE s2.zone_id = $1 AND s2.captured_at < t.next_transition_at
+		         ORDER BY s2.captured_at DESC LIMIT 1),
+		        (SELECT MAX(s2.captured_at) FROM snapshots s2 WHERE s2.zone_id = $1)
+		    ) AS last_seen_at
+		FROM transitions t
+		ORDER BY t.captured_at ASC`
 
 	rows, err := d.Pool.Query(ctx, query, zoneID, regNumber)
 	if err != nil {
@@ -273,7 +287,7 @@ func (d *DB) GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber stri
 	var changes []VehicleStatusChange
 	for rows.Next() {
 		var c VehicleStatusChange
-		if err := rows.Scan(&c.CapturedAt, &c.Status, &c.QueueType, &c.StatusChangedAt); err != nil {
+		if err := rows.Scan(&c.CapturedAt, &c.Status, &c.QueueType, &c.StatusChangedAt, &c.LastSeenAt); err != nil {
 			return nil, fmt.Errorf("scan vehicle status change: %w", err)
 		}
 		changes = append(changes, c)

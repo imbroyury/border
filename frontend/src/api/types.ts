@@ -23,6 +23,7 @@ export interface Vehicle {
 
 export interface VehicleStatusChange {
   captured_at: string
+  last_seen_at: string
   status: string
   queue_type: string
   status_changed_at: string

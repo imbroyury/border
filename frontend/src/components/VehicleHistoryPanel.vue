@@ -30,6 +30,12 @@ function formatTime(iso: string): string {
   return d.toLocaleString()
 }
 
+function formatTimeShort(iso: string): string {
+  const d = new Date(iso)
+  if (d.getTime() <= 0) return '-'
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 function statusClass(status: string): string {
   switch (status) {
     case 'in_queue':
@@ -61,7 +67,10 @@ function statusClass(status: string): string {
 
     <div v-else class="timeline">
       <div v-for="(c, i) in changes" :key="i" class="timeline-entry">
-        <div class="timeline-time">{{ formatTime(c.captured_at) }}</div>
+        <div class="timeline-time">
+          {{ formatTime(c.captured_at) }}
+          <span v-if="c.last_seen_at !== c.captured_at" class="last-seen">– {{ formatTimeShort(c.last_seen_at) }}</span>
+        </div>
         <div class="timeline-content">
           <span :class="['status-badge', statusClass(c.status)]">{{ c.status }}</span>
           <span class="queue-label">{{ c.queue_type }}</span>
@@ -131,8 +140,12 @@ function statusClass(status: string): string {
 .timeline-time {
   color: #888;
   font-size: 0.8rem;
-  min-width: 10rem;
+  min-width: 14rem;
   white-space: nowrap;
+}
+
+.last-seen {
+  color: #666;
 }
 
 .timeline-content {
