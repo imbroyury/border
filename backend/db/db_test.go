@@ -18,8 +18,8 @@ func setupTestDB(t *testing.T) *DB {
 	pgContainer, err := postgres.Run(ctx,
 		"postgres:16-alpine",
 		postgres.WithInitScripts(
-			"migrations/000001_init.up.sql",
-			"migrations/000002_seed_zones.up.sql",
+			"../../migrations/000001_init.up.sql",
+			"../../migrations/000002_seed_zones.up.sql",
 		),
 		postgres.WithDatabase("border_test"),
 		postgres.WithUsername("test"),

@@ -28,14 +28,6 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	// Run migrations
-	logger.Info("running migrations")
-	if err := db.RunMigrations(databaseURL); err != nil {
-		logger.Error("failed to run migrations", "error", err)
-		os.Exit(1)
-	}
-	logger.Info("migrations complete")
-
 	// Connect to database
 	ctx := context.Background()
 	database, err := db.New(ctx, databaseURL)
