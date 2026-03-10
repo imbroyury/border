@@ -15,7 +15,7 @@ func setupTestDB(t *testing.T) (*Store, func()) {
 	ctx := context.Background()
 
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:18-alpine",
 		postgres.WithInitScripts(
 			"../../migrations/000001_init.up.sql",
 			"../../migrations/000002_seed_zones.up.sql",
