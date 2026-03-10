@@ -21,16 +21,22 @@ export interface Vehicle {
   status_changed_at: string
 }
 
-export interface VehicleStatusChange {
-  captured_at: string
-  last_seen_at: string
+export interface StatusChange {
   status: string
-  queue_type: string
-  status_changed_at: string
+  detected_at: string
+  last_seen_at: string
 }
 
-export interface VehicleStatusChangeWithZone extends VehicleStatusChange {
+export interface CrossingHistory {
+  crossing_id: number
   zone_id: string
+  queue_type: string
+  registered_at: string
+  first_seen_at: string
+  last_seen_at: string
+  current_status: string
+  is_active: boolean
+  status_changes: StatusChange[]
 }
 
 export interface VehicleSearchResult {

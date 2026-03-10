@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -353,39 +352,33 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// Insert two snapshots
-	var snapshotID1, snapshotID2 int64
+	// Insert an active crossing with a status change
+	var crossingID int64
 	err := database.Pool.QueryRow(ctx,
-		"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-		"brest", now.Add(-30*time.Minute), 2,
-	).Scan(&snapshotID1)
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, registered_at, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $5, $6, true) RETURNING id`,
+		"brest", "BB5678-3", "passenger", now.Add(-time.Hour), now, "processing",
+	).Scan(&crossingID)
 	if err != nil {
-		t.Fatalf("insert snapshot 1: %v", err)
-	}
-
-	err = database.Pool.QueryRow(ctx,
-		"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-		"brest", now, 1,
-	).Scan(&snapshotID2)
-	if err != nil {
-		t.Fatalf("insert snapshot 2: %v", err)
-	}
-
-	// Insert vehicles for both snapshots
-	_, err = database.Pool.Exec(ctx,
-		"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		snapshotID1, "brest", "AA1234-7", "cargo", "waiting", now.Add(-2*time.Hour), now.Add(-time.Hour),
-	)
-	if err != nil {
-		t.Fatalf("insert vehicle for snapshot 1: %v", err)
+		t.Fatalf("insert crossing: %v", err)
 	}
 
 	_, err = database.Pool.Exec(ctx,
-		"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		snapshotID2, "brest", "BB5678-3", "passenger", "processing", now.Add(-time.Hour), now,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $3)`,
+		crossingID, "processing", now,
 	)
 	if err != nil {
-		t.Fatalf("insert vehicle for snapshot 2: %v", err)
+		t.Fatalf("insert status change: %v", err)
+	}
+
+	// Insert an inactive crossing (should not appear)
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $4, $5, false)`,
+		"brest", "AA1234-7", "cargo", now.Add(-2*time.Hour), "passed",
+	)
+	if err != nil {
+		t.Fatalf("insert inactive crossing: %v", err)
 	}
 
 	vehicles, err := database.GetCurrentVehicles(ctx, "brest")
@@ -393,15 +386,11 @@ func TestGetCurrentVehicles_WithData(t *testing.T) {
 		t.Fatalf("GetCurrentVehicles: %v", err)
 	}
 
-	// Should only return vehicle from latest snapshot (snapshot2)
 	if len(vehicles) != 1 {
-		t.Fatalf("expected 1 vehicle from latest snapshot, got %d", len(vehicles))
+		t.Fatalf("expected 1 active vehicle, got %d", len(vehicles))
 	}
 	if vehicles[0].RegNumber != "BB5678-3" {
 		t.Errorf("expected BB5678-3, got %s", vehicles[0].RegNumber)
-	}
-	if vehicles[0].QueueType != "passenger" {
-		t.Errorf("expected passenger, got %s", vehicles[0].QueueType)
 	}
 	if vehicles[0].Status != "processing" {
 		t.Errorf("expected processing, got %s", vehicles[0].Status)
@@ -438,28 +427,34 @@ func TestGetVehicleHistory_TimeRangeFiltering(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// Create snapshots at different times
-	times := []time.Duration{-48 * time.Hour, -24 * time.Hour, -1 * time.Hour}
-	regNumbers := []string{"OLD-0001", "MID-0002", "NEW-0003"}
+	// Old crossing (48h ago)
+	_, err := database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $4, $5, false)`,
+		"brest", "OLD-0001", "cargo", now.Add(-48*time.Hour), "passed",
+	)
+	if err != nil {
+		t.Fatalf("insert old crossing: %v", err)
+	}
 
-	for i, offset := range times {
-		ts := now.Add(offset)
-		var sid int64
-		err := database.Pool.QueryRow(ctx,
-			"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-			"brest", ts, 1,
-		).Scan(&sid)
-		if err != nil {
-			t.Fatalf("insert snapshot: %v", err)
-		}
+	// Mid crossing (24h ago)
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $4, $5, false)`,
+		"brest", "MID-0002", "cargo", now.Add(-24*time.Hour), "passed",
+	)
+	if err != nil {
+		t.Fatalf("insert mid crossing: %v", err)
+	}
 
-		_, err = database.Pool.Exec(ctx,
-			"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			sid, "brest", regNumbers[i], "cargo", "waiting", ts, ts,
-		)
-		if err != nil {
-			t.Fatalf("insert vehicle: %v", err)
-		}
+	// Recent crossing (1h ago)
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $4, $5, true)`,
+		"brest", "NEW-0003", "cargo", now.Add(-time.Hour), "in_queue",
+	)
+	if err != nil {
+		t.Fatalf("insert new crossing: %v", err)
 	}
 
 	// Query only last 25 hours — should get MID and NEW
@@ -486,7 +481,24 @@ func TestGetVehicleHistory_TimeRangeFiltering(t *testing.T) {
 	}
 }
 
-func TestGetVehicleHistory_DeduplicatesVehicles(t *testing.T) {
+func TestGetVehicleHistoryGrouped_NoData(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	crossings, err := database.GetVehicleHistoryGrouped(ctx, "NONEXISTENT", "")
+	if err != nil {
+		t.Fatalf("GetVehicleHistoryGrouped: %v", err)
+	}
+	if len(crossings) != 0 {
+		t.Fatalf("expected empty slice, got %d", len(crossings))
+	}
+}
+
+func TestGetVehicleHistoryGrouped_WithData(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -496,40 +508,105 @@ func TestGetVehicleHistory_DeduplicatesVehicles(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// Same vehicle appears in two snapshots
-	for i := 0; i < 2; i++ {
-		ts := now.Add(-time.Duration(i) * time.Hour)
-		var sid int64
-		err := database.Pool.QueryRow(ctx,
-			"INSERT INTO snapshots (zone_id, captured_at, cars_count) VALUES ($1, $2, $3) RETURNING id",
-			"brest", ts, 1,
-		).Scan(&sid)
-		if err != nil {
-			t.Fatalf("insert snapshot: %v", err)
-		}
+	// Insert a crossing with two status changes
+	var crossingID int64
+	err := database.Pool.QueryRow(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id`,
+		"brest", "TEST-001", "live", now.Add(-2*time.Hour), now, "called",
+	).Scan(&crossingID)
+	if err != nil {
+		t.Fatalf("insert crossing: %v", err)
+	}
 
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $4)`,
+		crossingID, "in_queue", now.Add(-2*time.Hour), now.Add(-time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("insert status change 1: %v", err)
+	}
+
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $3)`,
+		crossingID, "called", now.Add(-time.Hour), now,
+	)
+	if err != nil {
+		t.Fatalf("insert status change 2: %v", err)
+	}
+
+	crossings, err := database.GetVehicleHistoryGrouped(ctx, "TEST-001", "")
+	if err != nil {
+		t.Fatalf("GetVehicleHistoryGrouped: %v", err)
+	}
+
+	if len(crossings) != 1 {
+		t.Fatalf("expected 1 crossing, got %d", len(crossings))
+	}
+	if crossings[0].ZoneID != "brest" {
+		t.Errorf("expected zone brest, got %s", crossings[0].ZoneID)
+	}
+	if crossings[0].CurrentStatus != "called" {
+		t.Errorf("expected current_status=called, got %s", crossings[0].CurrentStatus)
+	}
+	if !crossings[0].IsActive {
+		t.Error("expected is_active=true")
+	}
+	if len(crossings[0].StatusChanges) != 2 {
+		t.Errorf("expected 2 status changes, got %d", len(crossings[0].StatusChanges))
+	}
+	if crossings[0].StatusChanges[0].Status != "in_queue" {
+		t.Errorf("expected first status=in_queue, got %s", crossings[0].StatusChanges[0].Status)
+	}
+}
+
+func TestGetVehicleHistoryGrouped_FilterByZone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+
+	for _, zone := range []string{"brest", "bruzgi"} {
+		var cid int64
+		err := database.Pool.QueryRow(ctx,
+			`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+			 VALUES ($1, $2, $3, $4, $4, $5, true) RETURNING id`,
+			zone, "MULTI-001", "live", now, "in_queue",
+		).Scan(&cid)
+		if err != nil {
+			t.Fatalf("insert crossing for %s: %v", zone, err)
+		}
 		_, err = database.Pool.Exec(ctx,
-			"INSERT INTO vehicles (snapshot_id, zone_id, reg_number, queue_type, status, registered_at, status_changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			sid, "brest", "SAME-0001", "cargo", fmt.Sprintf("status-%d", i), now.Add(-3*time.Hour), ts,
+			`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $3)`,
+			cid, "in_queue", now,
 		)
 		if err != nil {
-			t.Fatalf("insert vehicle: %v", err)
+			t.Fatalf("insert status change for %s: %v", zone, err)
 		}
 	}
 
-	from := now.Add(-3 * time.Hour)
-	to := now.Add(time.Minute)
-
-	vehicles, err := database.GetVehicleHistory(ctx, "brest", from, to)
+	// Filter by zone
+	crossings, err := database.GetVehicleHistoryGrouped(ctx, "MULTI-001", "brest")
 	if err != nil {
-		t.Fatalf("GetVehicleHistory: %v", err)
+		t.Fatalf("GetVehicleHistoryGrouped: %v", err)
+	}
+	if len(crossings) != 1 {
+		t.Fatalf("expected 1 crossing for brest, got %d", len(crossings))
+	}
+	if crossings[0].ZoneID != "brest" {
+		t.Errorf("expected brest, got %s", crossings[0].ZoneID)
 	}
 
-	// Should be deduplicated — only 1 entry, with most recent status
-	if len(vehicles) != 1 {
-		t.Fatalf("expected 1 deduplicated vehicle, got %d", len(vehicles))
+	// All zones
+	all, err := database.GetVehicleHistoryGrouped(ctx, "MULTI-001", "")
+	if err != nil {
+		t.Fatalf("GetVehicleHistoryGrouped all: %v", err)
 	}
-	if vehicles[0].Status != "status-0" {
-		t.Errorf("expected latest status 'status-0', got %s", vehicles[0].Status)
+	if len(all) != 2 {
+		t.Fatalf("expected 2 crossings across all zones, got %d", len(all))
 	}
 }

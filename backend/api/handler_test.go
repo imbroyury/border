@@ -16,22 +16,20 @@ import (
 
 // mockDB implements Querier for testing.
 type mockDB struct {
-	zones                  []db.ZoneWithCount
-	zonesErr               error
-	snapshots              []db.SnapshotPoint
-	snapshotsErr           error
-	vehicles               []db.VehicleRow
-	vehiclesErr            error
-	historyVehicles        []db.VehicleRow
-	historyErr             error
-	singleVehicleHistory    []db.VehicleStatusChange
-	singleVehicleHistoryErr error
-	searchResults           []db.VehicleSearchResult
-	searchErr               error
-	recentVehicles          []db.VehicleSearchResult
-	recentVehiclesErr       error
-	globalHistory           []db.VehicleStatusChangeWithZone
-	globalHistoryErr        error
+	zones               []db.ZoneWithCount
+	zonesErr            error
+	snapshots           []db.SnapshotPoint
+	snapshotsErr        error
+	vehicles            []db.VehicleRow
+	vehiclesErr         error
+	historyVehicles     []db.VehicleRow
+	historyErr          error
+	crossingHistory     []db.CrossingHistory
+	crossingHistoryErr  error
+	searchResults       []db.VehicleSearchResult
+	searchErr           error
+	recentVehicles      []db.VehicleSearchResult
+	recentVehiclesErr   error
 }
 
 func (m *mockDB) GetZones(_ context.Context) ([]db.ZoneWithCount, error) {
@@ -50,8 +48,8 @@ func (m *mockDB) GetVehicleHistory(_ context.Context, _ string, _, _ time.Time) 
 	return m.historyVehicles, m.historyErr
 }
 
-func (m *mockDB) GetSingleVehicleHistory(_ context.Context, _, _ string) ([]db.VehicleStatusChange, error) {
-	return m.singleVehicleHistory, m.singleVehicleHistoryErr
+func (m *mockDB) GetVehicleHistoryGrouped(_ context.Context, _, _ string) ([]db.CrossingHistory, error) {
+	return m.crossingHistory, m.crossingHistoryErr
 }
 
 func (m *mockDB) SearchVehicles(_ context.Context, _ string) ([]db.VehicleSearchResult, error) {
@@ -60,10 +58,6 @@ func (m *mockDB) SearchVehicles(_ context.Context, _ string) ([]db.VehicleSearch
 
 func (m *mockDB) GetRecentVehicles(_ context.Context) ([]db.VehicleSearchResult, error) {
 	return m.recentVehicles, m.recentVehiclesErr
-}
-
-func (m *mockDB) GetVehicleHistoryGlobal(_ context.Context, _ string) ([]db.VehicleStatusChangeWithZone, error) {
-	return m.globalHistory, m.globalHistoryErr
 }
 
 func newTestServer(mock *mockDB) *httptest.Server {
@@ -409,6 +403,120 @@ func TestGetVehicleHistory_DBError(t *testing.T) {
 	from := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	to := time.Now().UTC().Format(time.RFC3339)
 	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/history?from=" + from + "&to=" + to)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetSingleVehicleHistory_Success(t *testing.T) {
+	now := time.Now().UTC()
+	mock := &mockDB{
+		crossingHistory: []db.CrossingHistory{
+			{
+				CrossingID:    1,
+				ZoneID:        "brest",
+				QueueType:     "live",
+				FirstSeenAt:   now.Add(-time.Hour),
+				LastSeenAt:    now,
+				CurrentStatus: "called",
+				IsActive:      true,
+				StatusChanges: []db.StatusChange{
+					{Status: "in_queue", DetectedAt: now.Add(-time.Hour), LastSeenAt: now.Add(-30 * time.Minute)},
+					{Status: "called", DetectedAt: now.Add(-30 * time.Minute), LastSeenAt: now},
+				},
+			},
+		},
+	}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/AB1234/history")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var crossings []db.CrossingHistory
+	if err := json.NewDecoder(resp.Body).Decode(&crossings); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(crossings) != 1 {
+		t.Fatalf("expected 1 crossing, got %d", len(crossings))
+	}
+	if len(crossings[0].StatusChanges) != 2 {
+		t.Errorf("expected 2 status changes, got %d", len(crossings[0].StatusChanges))
+	}
+}
+
+func TestGetSingleVehicleHistory_DBError(t *testing.T) {
+	mock := &mockDB{crossingHistoryErr: errors.New("db error")}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/zones/brest/vehicles/AB1234/history")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetGlobalVehicleHistory_Success(t *testing.T) {
+	now := time.Now().UTC()
+	mock := &mockDB{
+		crossingHistory: []db.CrossingHistory{
+			{
+				CrossingID:    1,
+				ZoneID:        "brest",
+				QueueType:     "live",
+				FirstSeenAt:   now.Add(-time.Hour),
+				LastSeenAt:    now,
+				CurrentStatus: "passed",
+				IsActive:      false,
+				StatusChanges: []db.StatusChange{},
+			},
+		},
+	}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/vehicles/AB1234/history")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var crossings []db.CrossingHistory
+	if err := json.NewDecoder(resp.Body).Decode(&crossings); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(crossings) != 1 {
+		t.Fatalf("expected 1 crossing, got %d", len(crossings))
+	}
+}
+
+func TestGetGlobalVehicleHistory_DBError(t *testing.T) {
+	mock := &mockDB{crossingHistoryErr: errors.New("db error")}
+	srv := newTestServer(mock)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/vehicles/AB1234/history")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

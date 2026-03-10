@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -120,39 +119,43 @@ func crawlZone(ctx context.Context, client *scraper.Client, store *storage.Store
 		SentLast24h:  detail.SentLast24h,
 	}
 
-	var vehicles []storage.Vehicle
+	if _, err := store.InsertSnapshot(ctx, snap); err != nil {
+		return err
+	}
+
+	active, err := store.GetActiveCrossings(ctx, entry.Slug)
+	if err != nil {
+		return err
+	}
+
+	updates := make([]storage.CrossingUpdate, 0, len(detail.Vehicles))
 	for _, v := range detail.Vehicles {
-		vehicles = append(vehicles, storage.Vehicle{
-			ZoneID:          entry.Slug,
-			RegNumber:       v.RegNumber,
-			QueueType:       v.QueueType,
-			RegisteredAt:    v.RegisteredAt,
-			StatusChangedAt: v.StatusChangedAt,
-			Status:          v.Status,
+		updates = append(updates, storage.CrossingUpdate{
+			RegNumber:    v.RegNumber,
+			QueueType:    v.QueueType,
+			RegisteredAt: v.RegisteredAt,
+			Status:       v.Status,
+			CapturedAt:   capturedAt,
 		})
 	}
 
-	prevStatuses, err := store.GetLatestVehicleStatuses(ctx, entry.Slug)
-	if err != nil {
-		return fmt.Errorf("get latest vehicle statuses: %w", err)
-	}
-
-	var changed []storage.Vehicle
-	for _, v := range vehicles {
-		if prev, ok := prevStatuses[v.RegNumber]; !ok || prev != v.Status {
-			changed = append(changed, v)
+	vehiclesChanged := 0
+	for _, u := range updates {
+		ac, ok := active[u.RegNumber]
+		if !ok || ac.CurrentStatus != u.Status {
+			vehiclesChanged++
 		}
 	}
 
-	if err := store.InsertCrawlResult(ctx, snap, changed); err != nil {
+	if err := store.ApplyCrawlDiff(ctx, entry.Slug, capturedAt, updates, active); err != nil {
 		return err
 	}
 
 	slog.Info("stored zone data",
 		"zone", entry.Slug,
 		"cars_count", entry.CarsCount,
-		"vehicles_total", len(vehicles),
-		"vehicles_stored", len(changed),
+		"vehicles_seen", len(updates),
+		"vehicles_changed", vehiclesChanged,
 		"sent_last_hour", detail.SentLastHour,
 		"sent_last_24h", detail.SentLast24h,
 	)

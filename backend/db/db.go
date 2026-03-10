@@ -25,10 +25,10 @@ type ZoneWithCount struct {
 
 // SnapshotPoint represents a single (possibly aggregated) snapshot data point.
 type SnapshotPoint struct {
-	CapturedAt  time.Time `json:"captured_at"`
-	CarsCount   float64   `json:"cars_count"`
-	SentLastHour float64  `json:"sent_last_hour"`
-	SentLast24h float64   `json:"sent_last_24h"`
+	CapturedAt   time.Time `json:"captured_at"`
+	CarsCount    float64   `json:"cars_count"`
+	SentLastHour float64   `json:"sent_last_hour"`
+	SentLast24h  float64   `json:"sent_last_24h"`
 }
 
 // VehicleRow represents a vehicle record.
@@ -38,6 +38,34 @@ type VehicleRow struct {
 	Status          string    `json:"status"`
 	RegisteredAt    time.Time `json:"registered_at"`
 	StatusChangedAt time.Time `json:"status_changed_at"`
+}
+
+// StatusChange represents a single status observation within a crossing.
+type StatusChange struct {
+	Status     string    `json:"status"`
+	DetectedAt time.Time `json:"detected_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
+// CrossingHistory represents a vehicle crossing with all its status changes.
+type CrossingHistory struct {
+	CrossingID    int64          `json:"crossing_id"`
+	ZoneID        string         `json:"zone_id"`
+	QueueType     string         `json:"queue_type"`
+	RegisteredAt  time.Time      `json:"registered_at"`
+	FirstSeenAt   time.Time      `json:"first_seen_at"`
+	LastSeenAt    time.Time      `json:"last_seen_at"`
+	CurrentStatus string         `json:"current_status"`
+	IsActive      bool           `json:"is_active"`
+	StatusChanges []StatusChange `json:"status_changes"`
+}
+
+// VehicleSearchResult represents a vehicle found by search.
+type VehicleSearchResult struct {
+	RegNumber string    `json:"reg_number"`
+	ZoneID    string    `json:"zone_id"`
+	Status    string    `json:"status"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 // DB wraps a pgx connection pool.
@@ -170,22 +198,20 @@ func (d *DB) GetSnapshots(ctx context.Context, zoneID string, from, to time.Time
 	return points, nil
 }
 
-// GetCurrentVehicles returns vehicles from the latest snapshot for a zone.
+// GetCurrentVehicles returns active vehicles for a zone.
 func (d *DB) GetCurrentVehicles(ctx context.Context, zoneID string) ([]VehicleRow, error) {
 	query := `
-		SELECT v.reg_number, v.queue_type, v.status,
-		       COALESCE(v.registered_at, '1970-01-01T00:00:00Z'),
-		       COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z')
-		FROM vehicles v
-		JOIN snapshots s ON s.id = v.snapshot_id
-		WHERE v.zone_id = $1
-		  AND s.id = (
-		      SELECT id FROM snapshots
-		      WHERE zone_id = $1
-		      ORDER BY captured_at DESC
-		      LIMIT 1
-		  )
-		ORDER BY v.registered_at`
+		SELECT vc.reg_number, vc.queue_type, vc.current_status,
+		       COALESCE(vc.registered_at, '1970-01-01T00:00:00Z'),
+		       COALESCE(sc.detected_at, '1970-01-01T00:00:00Z')
+		FROM vehicle_crossings vc
+		LEFT JOIN LATERAL (
+		    SELECT detected_at FROM vehicle_status_changes
+		    WHERE crossing_id = vc.id
+		    ORDER BY detected_at DESC LIMIT 1
+		) sc ON true
+		WHERE vc.zone_id = $1 AND vc.is_active = true
+		ORDER BY vc.registered_at NULLS LAST`
 
 	rows, err := d.Pool.Query(ctx, query, zoneID)
 	if err != nil {
@@ -210,18 +236,22 @@ func (d *DB) GetCurrentVehicles(ctx context.Context, zoneID string) ([]VehicleRo
 	return vehicles, nil
 }
 
-// GetVehicleHistory returns vehicles for a zone within a time range.
+// GetVehicleHistory returns vehicles for a zone within a time range (one per reg_number, most recent).
 func (d *DB) GetVehicleHistory(ctx context.Context, zoneID string, from, to time.Time) ([]VehicleRow, error) {
 	query := `
-		SELECT DISTINCT ON (v.reg_number) v.reg_number, v.queue_type, v.status,
-		       COALESCE(v.registered_at, '1970-01-01T00:00:00Z'),
-		       COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z')
-		FROM vehicles v
-		JOIN snapshots s ON s.id = v.snapshot_id
-		WHERE v.zone_id = $1
-		  AND s.captured_at >= $2
-		  AND s.captured_at <= $3
-		ORDER BY v.reg_number, s.captured_at DESC`
+		SELECT DISTINCT ON (vc.reg_number) vc.reg_number, vc.queue_type, vc.current_status,
+		       COALESCE(vc.registered_at, '1970-01-01T00:00:00Z'),
+		       COALESCE(sc.detected_at, '1970-01-01T00:00:00Z')
+		FROM vehicle_crossings vc
+		LEFT JOIN LATERAL (
+		    SELECT detected_at FROM vehicle_status_changes
+		    WHERE crossing_id = vc.id
+		    ORDER BY detected_at DESC LIMIT 1
+		) sc ON true
+		WHERE vc.zone_id = $1
+		  AND vc.first_seen_at <= $3
+		  AND vc.last_seen_at >= $2
+		ORDER BY vc.reg_number, vc.last_seen_at DESC`
 
 	rows, err := d.Pool.Query(ctx, query, zoneID, from, to)
 	if err != nil {
@@ -246,78 +276,86 @@ func (d *DB) GetVehicleHistory(ctx context.Context, zoneID string, from, to time
 	return vehicles, nil
 }
 
-// VehicleStatusChange represents a single status observation for a vehicle.
-type VehicleStatusChange struct {
-	CapturedAt      time.Time `json:"captured_at"`
-	LastSeenAt      time.Time `json:"last_seen_at"`
-	Status          string    `json:"status"`
-	QueueType       string    `json:"queue_type"`
-	StatusChangedAt time.Time `json:"status_changed_at"`
-}
-
-// GetSingleVehicleHistory returns all status observations for a specific vehicle.
-func (d *DB) GetSingleVehicleHistory(ctx context.Context, zoneID, regNumber string) ([]VehicleStatusChange, error) {
-	query := `
-		WITH transitions AS (
-		    SELECT s.captured_at,
-		           v.status,
-		           v.queue_type,
-		           COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z') AS status_changed_at,
-		           LEAD(s.captured_at) OVER (ORDER BY s.captured_at ASC) AS next_transition_at
-		    FROM vehicles v
-		    JOIN snapshots s ON s.id = v.snapshot_id
-		    WHERE v.zone_id = $1 AND v.reg_number = $2
-		)
-		SELECT t.captured_at, t.status, t.queue_type, t.status_changed_at,
-		    COALESCE(
-		        (SELECT s2.captured_at FROM snapshots s2
-		         WHERE s2.zone_id = $1 AND s2.captured_at < t.next_transition_at
-		         ORDER BY s2.captured_at DESC LIMIT 1),
-		        (SELECT MAX(s2.captured_at) FROM snapshots s2 WHERE s2.zone_id = $1)
-		    ) AS last_seen_at
-		FROM transitions t
-		ORDER BY t.captured_at ASC`
-
-	rows, err := d.Pool.Query(ctx, query, zoneID, regNumber)
+// GetVehicleHistoryGrouped returns all crossings for a reg_number with status changes nested.
+// If zoneID is empty, returns crossings across all zones.
+func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zoneID string) ([]CrossingHistory, error) {
+	rows, err := d.Pool.Query(ctx,
+		`SELECT id, zone_id, queue_type,
+		        COALESCE(registered_at, '1970-01-01T00:00:00Z'),
+		        first_seen_at, last_seen_at, current_status, is_active
+		 FROM vehicle_crossings
+		 WHERE reg_number = $1
+		   AND ($2 = '' OR zone_id = $2)
+		 ORDER BY first_seen_at ASC`,
+		regNumber, zoneID,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("query single vehicle history: %w", err)
+		return nil, fmt.Errorf("query crossings: %w", err)
 	}
 	defer rows.Close()
 
-	var changes []VehicleStatusChange
+	var crossings []CrossingHistory
+	crossingByID := make(map[int64]*CrossingHistory)
+
 	for rows.Next() {
-		var c VehicleStatusChange
-		if err := rows.Scan(&c.CapturedAt, &c.Status, &c.QueueType, &c.StatusChangedAt, &c.LastSeenAt); err != nil {
-			return nil, fmt.Errorf("scan vehicle status change: %w", err)
+		var c CrossingHistory
+		if err := rows.Scan(&c.CrossingID, &c.ZoneID, &c.QueueType, &c.RegisteredAt,
+			&c.FirstSeenAt, &c.LastSeenAt, &c.CurrentStatus, &c.IsActive); err != nil {
+			return nil, fmt.Errorf("scan crossing: %w", err)
 		}
-		changes = append(changes, c)
+		c.StatusChanges = []StatusChange{}
+		crossings = append(crossings, c)
+		crossingByID[c.CrossingID] = &crossings[len(crossings)-1]
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
 	}
-	if changes == nil {
-		changes = []VehicleStatusChange{}
+
+	if len(crossings) == 0 {
+		return []CrossingHistory{}, nil
 	}
-	return changes, nil
+
+	ids := make([]int64, len(crossings))
+	for i, c := range crossings {
+		ids[i] = c.CrossingID
+	}
+
+	scRows, err := d.Pool.Query(ctx,
+		`SELECT crossing_id, status, detected_at, last_seen_at
+		 FROM vehicle_status_changes
+		 WHERE crossing_id = ANY($1)
+		 ORDER BY crossing_id, detected_at ASC`,
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query status changes: %w", err)
+	}
+	defer scRows.Close()
+
+	for scRows.Next() {
+		var crossingID int64
+		var sc StatusChange
+		if err := scRows.Scan(&crossingID, &sc.Status, &sc.DetectedAt, &sc.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("scan status change: %w", err)
+		}
+		if c, ok := crossingByID[crossingID]; ok {
+			c.StatusChanges = append(c.StatusChanges, sc)
+		}
+	}
+	if err := scRows.Err(); err != nil {
+		return nil, fmt.Errorf("status change rows: %w", err)
+	}
+
+	return crossings, nil
 }
 
-// VehicleSearchResult represents a vehicle found by search.
-type VehicleSearchResult struct {
-	RegNumber string    `json:"reg_number"`
-	ZoneID    string    `json:"zone_id"`
-	Status    string    `json:"status"`
-	LastSeen  time.Time `json:"last_seen"`
-}
-
-// SearchVehicles searches for vehicles by reg number prefix across all zones.
+// SearchVehicles searches for vehicles by reg number across all zones.
 func (d *DB) SearchVehicles(ctx context.Context, query string) ([]VehicleSearchResult, error) {
 	sql := `
-		SELECT DISTINCT ON (v.reg_number, v.zone_id)
-		       v.reg_number, v.zone_id, v.status, s.captured_at
-		FROM vehicles v
-		JOIN snapshots s ON s.id = v.snapshot_id
-		WHERE v.reg_number ILIKE $1
-		ORDER BY v.reg_number, v.zone_id, s.captured_at DESC
+		SELECT DISTINCT ON (reg_number, zone_id) reg_number, zone_id, current_status, last_seen_at
+		FROM vehicle_crossings
+		WHERE reg_number ILIKE $1
+		ORDER BY reg_number, zone_id, last_seen_at DESC
 		LIMIT 50`
 
 	rows, err := d.Pool.Query(ctx, sql, "%"+query+"%")
@@ -343,58 +381,14 @@ func (d *DB) SearchVehicles(ctx context.Context, query string) ([]VehicleSearchR
 	return results, nil
 }
 
-// GetVehicleHistoryGlobal returns all status observations for a vehicle across all zones.
-func (d *DB) GetVehicleHistoryGlobal(ctx context.Context, regNumber string) ([]VehicleStatusChangeWithZone, error) {
-	sql := `
-		SELECT s.captured_at, v.status, v.queue_type,
-		       COALESCE(v.status_changed_at, '1970-01-01T00:00:00Z'),
-		       v.zone_id
-		FROM vehicles v
-		JOIN snapshots s ON s.id = v.snapshot_id
-		WHERE v.reg_number = $1
-		ORDER BY s.captured_at ASC`
-
-	rows, err := d.Pool.Query(ctx, sql, regNumber)
-	if err != nil {
-		return nil, fmt.Errorf("query global vehicle history: %w", err)
-	}
-	defer rows.Close()
-
-	var changes []VehicleStatusChangeWithZone
-	for rows.Next() {
-		var c VehicleStatusChangeWithZone
-		if err := rows.Scan(&c.CapturedAt, &c.Status, &c.QueueType, &c.StatusChangedAt, &c.ZoneID); err != nil {
-			return nil, fmt.Errorf("scan vehicle status change: %w", err)
-		}
-		changes = append(changes, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
-	}
-	if changes == nil {
-		changes = []VehicleStatusChangeWithZone{}
-	}
-	return changes, nil
-}
-
-// VehicleStatusChangeWithZone extends VehicleStatusChange with zone info.
-type VehicleStatusChangeWithZone struct {
-	CapturedAt      time.Time `json:"captured_at"`
-	Status          string    `json:"status"`
-	QueueType       string    `json:"queue_type"`
-	StatusChangedAt time.Time `json:"status_changed_at"`
-	ZoneID          string    `json:"zone_id"`
-}
-
 // GetRecentVehicles returns the most recently seen vehicles across all zones.
 func (d *DB) GetRecentVehicles(ctx context.Context) ([]VehicleSearchResult, error) {
 	sql := `
 		SELECT reg_number, zone_id, status, last_seen FROM (
-			SELECT DISTINCT ON (v.reg_number)
-			       v.reg_number, v.zone_id, v.status, s.captured_at AS last_seen
-			FROM vehicles v
-			JOIN snapshots s ON s.id = v.snapshot_id
-			ORDER BY v.reg_number, s.captured_at DESC
+		    SELECT DISTINCT ON (reg_number)
+		           reg_number, zone_id, current_status AS status, last_seen_at AS last_seen
+		    FROM vehicle_crossings
+		    ORDER BY reg_number, last_seen_at DESC
 		) sub
 		ORDER BY last_seen DESC
 		LIMIT 50`

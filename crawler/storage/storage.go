@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,14 +17,22 @@ type Snapshot struct {
 	SentLast24h  int
 }
 
-// Vehicle represents a single vehicle entry associated with a snapshot.
-type Vehicle struct {
-	ZoneID          string
-	RegNumber       string
-	QueueType       string
-	RegisteredAt    time.Time
-	StatusChangedAt time.Time
-	Status          string
+// ActiveCrossing represents an is_active=true crossing for a zone.
+type ActiveCrossing struct {
+	ID            int64
+	RegNumber     string
+	QueueType     string
+	CurrentStatus string
+	LastSeenAt    time.Time
+}
+
+// CrossingUpdate represents a vehicle observed in the current crawl.
+type CrossingUpdate struct {
+	RegNumber    string
+	QueueType    string
+	RegisteredAt time.Time // zero → NULL
+	Status       string
+	CapturedAt   time.Time
 }
 
 // Store provides database operations for the crawler.
@@ -68,129 +75,145 @@ func (s *Store) InsertSnapshot(ctx context.Context, snap *Snapshot) (int64, erro
 	return id, nil
 }
 
-// InsertVehicles inserts vehicle rows associated with a snapshot.
-func (s *Store) InsertVehicles(ctx context.Context, snapshotID int64, zoneID string, vehicles []Vehicle) error {
-	if len(vehicles) == 0 {
-		return nil
-	}
-
-	_, err := s.pool.CopyFrom(ctx,
-		pgx.Identifier{"vehicles"},
-		[]string{"snapshot_id", "zone_id", "reg_number", "queue_type", "registered_at", "status_changed_at", "status"},
-		pgx.CopyFromSlice(len(vehicles), func(i int) ([]any, error) {
-			v := vehicles[i]
-			var registeredAt, statusChangedAt any
-			if v.RegisteredAt.IsZero() {
-				registeredAt = nil
-			} else {
-				registeredAt = v.RegisteredAt
-			}
-			if v.StatusChangedAt.IsZero() {
-				statusChangedAt = nil
-			} else {
-				statusChangedAt = v.StatusChangedAt
-			}
-			return []any{
-				snapshotID,
-				zoneID,
-				v.RegNumber,
-				v.QueueType,
-				registeredAt,
-				statusChangedAt,
-				v.Status,
-			}, nil
-		}),
-	)
-	if err != nil {
-		return fmt.Errorf("insert vehicles: %w", err)
-	}
-	return nil
-}
-
-// GetLatestVehicleStatuses returns reg_number→status for the most recent snapshot of the zone.
-// Returns an empty map (no error) if no snapshots exist yet.
-func (s *Store) GetLatestVehicleStatuses(ctx context.Context, zoneID string) (map[string]string, error) {
+// GetActiveCrossings returns is_active=true crossings for a zone, keyed by reg_number.
+func (s *Store) GetActiveCrossings(ctx context.Context, zoneID string) (map[string]ActiveCrossing, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT v.reg_number, v.status
-		 FROM vehicles v
-		 JOIN snapshots s ON s.id = v.snapshot_id
-		 WHERE v.zone_id = $1
-		   AND s.id = (SELECT id FROM snapshots WHERE zone_id = $1 ORDER BY captured_at DESC LIMIT 1)`,
+		`SELECT id, reg_number, queue_type, current_status, last_seen_at
+		 FROM vehicle_crossings
+		 WHERE zone_id = $1 AND is_active = true`,
 		zoneID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query latest vehicle statuses: %w", err)
+		return nil, fmt.Errorf("query active crossings: %w", err)
 	}
 	defer rows.Close()
 
-	result := make(map[string]string)
+	result := make(map[string]ActiveCrossing)
 	for rows.Next() {
-		var regNumber, status string
-		if err := rows.Scan(&regNumber, &status); err != nil {
-			return nil, fmt.Errorf("scan vehicle status: %w", err)
+		var ac ActiveCrossing
+		if err := rows.Scan(&ac.ID, &ac.RegNumber, &ac.QueueType, &ac.CurrentStatus, &ac.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("scan active crossing: %w", err)
 		}
-		result[regNumber] = status
+		result[ac.RegNumber] = ac
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate vehicle statuses: %w", err)
+		return nil, fmt.Errorf("iterate active crossings: %w", err)
 	}
 	return result, nil
 }
 
-// InsertCrawlResult inserts a snapshot and its vehicles in a single transaction.
-func (s *Store) InsertCrawlResult(ctx context.Context, snap *Snapshot, vehicles []Vehicle) error {
+// ApplyCrawlDiff reconciles current API vehicles against active crossings, in one transaction:
+//   - New vehicle (not in active map) → INSERT crossing + first status_change
+//   - Same vehicle, same status → UPDATE last_seen_at on crossing + latest status_change
+//   - Same vehicle, new status → INSERT status_change, UPDATE crossing.current_status + last_seen_at
+//   - Vehicle in active map but absent from current → SET is_active = false
+func (s *Store) ApplyCrawlDiff(ctx context.Context, zoneID string, capturedAt time.Time,
+	current []CrossingUpdate, active map[string]ActiveCrossing) error {
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	var snapshotID int64
-	err = tx.QueryRow(ctx,
-		`INSERT INTO snapshots (zone_id, captured_at, cars_count, sent_last_hour, sent_last_24h)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id`,
-		snap.ZoneID, snap.CapturedAt, snap.CarsCount, snap.SentLastHour, snap.SentLast24h,
-	).Scan(&snapshotID)
-	if err != nil {
-		return fmt.Errorf("insert snapshot in tx: %w", err)
+	currentSet := make(map[string]struct{}, len(current))
+	for _, u := range current {
+		currentSet[u.RegNumber] = struct{}{}
 	}
 
-	if len(vehicles) > 0 {
-		_, err = tx.CopyFrom(ctx,
-			pgx.Identifier{"vehicles"},
-			[]string{"snapshot_id", "zone_id", "reg_number", "queue_type", "registered_at", "status_changed_at", "status"},
-			pgx.CopyFromSlice(len(vehicles), func(i int) ([]any, error) {
-				v := vehicles[i]
-				var registeredAt, statusChangedAt any
-				if v.RegisteredAt.IsZero() {
-					registeredAt = nil
-				} else {
-					registeredAt = v.RegisteredAt
-				}
-				if v.StatusChangedAt.IsZero() {
-					statusChangedAt = nil
-				} else {
-					statusChangedAt = v.StatusChangedAt
-				}
-				return []any{
-					snapshotID,
-					snap.ZoneID,
-					v.RegNumber,
-					v.QueueType,
-					registeredAt,
-					statusChangedAt,
-					v.Status,
-				}, nil
-			}),
-		)
-		if err != nil {
-			return fmt.Errorf("insert vehicles in tx: %w", err)
+	var sameStatusIDs []int64
+	var disappeared []int64
+
+	for regNumber, ac := range active {
+		if _, ok := currentSet[regNumber]; !ok {
+			disappeared = append(disappeared, ac.ID)
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
+	for _, u := range current {
+		ac, ok := active[u.RegNumber]
+		if !ok {
+			// New vehicle — INSERT crossing + first status_change
+			var registeredAt any
+			if !u.RegisteredAt.IsZero() {
+				registeredAt = u.RegisteredAt
+			}
+			var crossingID int64
+			err = tx.QueryRow(ctx,
+				`INSERT INTO vehicle_crossings
+				 (zone_id, reg_number, queue_type, registered_at, first_seen_at, last_seen_at, current_status, is_active)
+				 VALUES ($1, $2, $3, $4, $5, $5, $6, true)
+				 RETURNING id`,
+				zoneID, u.RegNumber, u.QueueType, registeredAt, u.CapturedAt, u.Status,
+			).Scan(&crossingID)
+			if err != nil {
+				return fmt.Errorf("insert crossing for %s: %w", u.RegNumber, err)
+			}
+			_, err = tx.Exec(ctx,
+				`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at)
+				 VALUES ($1, $2, $3, $3)`,
+				crossingID, u.Status, u.CapturedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("insert status change for %s: %w", u.RegNumber, err)
+			}
+		} else if ac.CurrentStatus == u.Status {
+			// Same status — batch for last_seen_at update
+			sameStatusIDs = append(sameStatusIDs, ac.ID)
+		} else {
+			// Status changed — INSERT new status_change, UPDATE crossing
+			_, err = tx.Exec(ctx,
+				`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at)
+				 VALUES ($1, $2, $3, $3)`,
+				ac.ID, u.Status, u.CapturedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("insert status change for %s: %w", u.RegNumber, err)
+			}
+			_, err = tx.Exec(ctx,
+				`UPDATE vehicle_crossings SET current_status = $1, last_seen_at = $2 WHERE id = $3`,
+				u.Status, u.CapturedAt, ac.ID,
+			)
+			if err != nil {
+				return fmt.Errorf("update crossing for %s: %w", u.RegNumber, err)
+			}
+		}
 	}
-	return nil
+
+	if len(sameStatusIDs) > 0 {
+		_, err = tx.Exec(ctx,
+			`UPDATE vehicle_crossings SET last_seen_at = $1 WHERE id = ANY($2)`,
+			capturedAt, sameStatusIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("batch update crossings last_seen_at: %w", err)
+		}
+		_, err = tx.Exec(ctx,
+			`UPDATE vehicle_status_changes sc
+			 SET last_seen_at = $1
+			 FROM (
+			     SELECT DISTINCT ON (crossing_id) id
+			     FROM vehicle_status_changes
+			     WHERE crossing_id = ANY($2)
+			     ORDER BY crossing_id, detected_at DESC
+			 ) latest
+			 WHERE sc.id = latest.id`,
+			capturedAt, sameStatusIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("batch update status changes last_seen_at: %w", err)
+		}
+	}
+
+	if len(disappeared) > 0 {
+		_, err = tx.Exec(ctx,
+			`UPDATE vehicle_crossings SET is_active = false WHERE id = ANY($1)`,
+			disappeared,
+		)
+		if err != nil {
+			return fmt.Errorf("mark disappeared crossings inactive: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
 }

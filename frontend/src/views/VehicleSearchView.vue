@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
-import type { VehicleSearchResult, VehicleStatusChangeWithZone } from '../api/types'
+import type { VehicleSearchResult, CrossingHistory } from '../api/types'
 import { searchVehicles, fetchGlobalVehicleHistory, fetchRecentVehicles } from '../api/client'
 
 const query = ref('')
@@ -11,9 +11,10 @@ const loadingRecent = ref(true)
 const searchError = ref('')
 
 const selectedReg = ref<string | null>(null)
-const history = ref<VehicleStatusChangeWithZone[]>([])
+const crossings = ref<CrossingHistory[]>([])
 const loadingHistory = ref(false)
 const historyError = ref('')
+const expanded = ref<Set<number>>(new Set())
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -30,7 +31,7 @@ onMounted(async () => {
 watch(query, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   selectedReg.value = null
-  history.value = []
+  crossings.value = []
 
   if (val.length < 2) {
     results.value = []
@@ -55,10 +56,15 @@ async function doSearch(q: string) {
 
 async function selectVehicle(regNumber: string) {
   selectedReg.value = regNumber
+  expanded.value = new Set()
   try {
     loadingHistory.value = true
     historyError.value = ''
-    history.value = await fetchGlobalVehicleHistory(regNumber)
+    crossings.value = await fetchGlobalVehicleHistory(regNumber)
+    // Auto-expand active crossings
+    for (const c of crossings.value) {
+      if (c.is_active) expanded.value.add(c.crossing_id)
+    }
   } catch (e: any) {
     historyError.value = e.message || 'Failed to load history'
   } finally {
@@ -66,10 +72,30 @@ async function selectVehicle(regNumber: string) {
   }
 }
 
+function toggleExpanded(id: number) {
+  if (expanded.value.has(id)) {
+    expanded.value.delete(id)
+  } else {
+    expanded.value.add(id)
+  }
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso)
   if (d.getTime() <= 0) return '-'
   return d.toLocaleString()
+}
+
+function formatTimeShort(iso: string): string {
+  const d = new Date(iso)
+  if (d.getTime() <= 0) return '-'
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (d.getTime() <= 0) return '-'
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function statusClass(status: string): string {
@@ -126,23 +152,48 @@ function statusClass(status: string): string {
     <div v-if="selectedReg" class="history-section">
       <div class="history-header">
         <h2 class="mono">{{ selectedReg }}</h2>
-        <button class="back-btn" @click="selectedReg = null; history = []">&larr; Back to results</button>
+        <button class="back-btn" @click="selectedReg = null; crossings = []">&larr; Back to results</button>
       </div>
 
       <p v-if="loadingHistory" class="status">Loading history...</p>
       <p v-else-if="historyError" class="status error">{{ historyError }}</p>
-      <p v-else-if="history.length === 0" class="status">No history found</p>
+      <p v-else-if="crossings.length === 0" class="status">No history found</p>
 
-      <div v-else class="timeline">
-        <div v-for="(c, i) in history" :key="i" class="timeline-entry">
-          <div class="timeline-time">{{ formatTime(c.captured_at) }}</div>
-          <div class="timeline-content">
-            <span :class="['status-badge', statusClass(c.status)]">{{ c.status }}</span>
-            <span class="queue-label">{{ c.queue_type }}</span>
-            <router-link :to="`/zone/${c.zone_id}`" class="zone-link">{{ c.zone_id }}</router-link>
+      <template v-else>
+        <p class="crossing-count">{{ crossings.length }} crossing{{ crossings.length !== 1 ? 's' : '' }}</p>
+
+        <div class="crossings">
+          <div
+            v-for="c in crossings"
+            :key="c.crossing_id"
+            :class="['crossing-card', { active: c.is_active }]"
+          >
+            <div class="crossing-header" @click="toggleExpanded(c.crossing_id)">
+              <div class="crossing-meta">
+                <router-link :to="`/zone/${c.zone_id}`" class="zone-link" @click.stop>{{ c.zone_id }}</router-link>
+                <span class="date-range">
+                  {{ formatDate(c.first_seen_at) }} – {{ c.is_active ? 'present' : formatDate(c.last_seen_at) }}
+                </span>
+              </div>
+              <div class="crossing-right">
+                <span :class="['status-badge', statusClass(c.current_status)]">{{ c.current_status }}</span>
+                <span v-if="c.is_active" class="active-indicator">active</span>
+                <span class="expand-icon">{{ expanded.has(c.crossing_id) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+
+            <div v-if="expanded.has(c.crossing_id)" class="status-timeline">
+              <div v-for="(sc, i) in c.status_changes" :key="i" class="timeline-entry">
+                <div class="timeline-time">
+                  {{ formatTime(sc.detected_at) }}
+                  <span v-if="sc.last_seen_at !== sc.detected_at" class="last-seen">– {{ formatTimeShort(sc.last_seen_at) }}</span>
+                </div>
+                <span :class="['status-badge', statusClass(sc.status)]">{{ sc.status }}</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -262,45 +313,110 @@ function statusClass(status: string): string {
   border-color: #7c8cf5;
 }
 
-.timeline {
+.crossing-count {
+  color: #888;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.crossings {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.crossing-card {
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.crossing-card.active {
+  border-color: #7c8cf5;
+  background: rgba(124, 140, 245, 0.05);
+}
+
+.crossing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  gap: 1rem;
+}
+
+.crossing-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.crossing-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-link {
+  color: #7c8cf5;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.zone-link:hover {
+  text-decoration: underline;
+}
+
+.date-range {
+  color: #888;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.crossing-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.active-indicator {
+  font-size: 0.7rem;
+  color: #4ecdc4;
+  border: 1px solid #4ecdc4;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+}
+
+.expand-icon {
+  color: #666;
+  font-size: 0.7rem;
+}
+
+.status-timeline {
+  border-top: 1px solid #2a2a4a;
+  padding: 0.5rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .timeline-entry {
   display: flex;
   gap: 1rem;
   align-items: center;
-  padding: 0.4rem 0;
-  border-bottom: 1px solid #2a2a4a;
-}
-
-.timeline-entry:last-child {
-  border-bottom: none;
+  padding: 0.2rem 0;
 }
 
 .timeline-time {
   color: #888;
   font-size: 0.8rem;
-  min-width: 10rem;
+  min-width: 14rem;
   white-space: nowrap;
 }
 
-.timeline-content {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.queue-label {
+.last-seen {
   color: #666;
-  font-size: 0.8rem;
-}
-
-.zone-link {
-  color: #7c8cf5;
-  font-size: 0.8rem;
 }
 
 .mono {
