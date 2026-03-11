@@ -180,7 +180,9 @@ onMounted(async () => {
               <th class="sortable" @click="toggleSort('zone_id')">
                 Zone <span>{{ sortIcon('zone_id') }}</span>
               </th>
-              <th>Status</th>
+              <th class="sortable" @click="toggleSort('current_status')">
+                Status <span>{{ sortIcon('current_status') }}</span>
+              </th>
               <th class="sortable" @click="toggleSort('crossing_count')">
                 Crossings <span>{{ sortIcon('crossing_count') }}</span>
               </th>

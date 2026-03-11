@@ -374,7 +374,8 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 		"reg_number":     "reg_number",
 		"last_seen_at":   "last_seen_at",
 		"zone_id":        "zone_id",
-		"crossing_count": "crossing_count",
+		"crossing_count":  "crossing_count",
+		"current_status":  "current_status",
 	}
 	sortCol := "last_seen_at"
 	if col, ok := sortColumns[params.Sort]; ok {
