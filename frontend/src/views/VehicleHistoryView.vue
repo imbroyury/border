@@ -61,8 +61,13 @@ function statusClass(status: string): string {
     case 'passed': return 'status-passed'
     case 'registered': return 'status-registered'
     case 'cancelled': return 'status-cancelled'
+    case 'gone': return 'status-gone'
     default: return ''
   }
+}
+
+function isTerminalStatus(status: string): boolean {
+  return status === 'passed' || status === 'cancelled'
 }
 </script>
 
@@ -107,6 +112,10 @@ function statusClass(status: string): string {
                 <span v-if="sc.last_seen_at !== sc.detected_at" class="last-seen">– {{ formatTimeShort(sc.last_seen_at) }}</span>
               </div>
               <span :class="['status-badge', statusClass(sc.status)]">{{ sc.status }}</span>
+            </div>
+            <div v-if="!c.is_active && !isTerminalStatus(c.current_status)" class="timeline-entry gone-entry">
+              <div class="timeline-time">{{ formatTime(c.last_seen_at) }}</div>
+              <span class="status-badge status-gone">gone</span>
             </div>
           </div>
         </div>
@@ -270,6 +279,16 @@ function statusClass(status: string): string {
 .status-cancelled {
   background: rgba(255, 107, 107, 0.2);
   color: #ff6b6b;
+}
+
+.status-gone {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+  font-style: italic;
+}
+
+.gone-entry {
+  opacity: 0.7;
 }
 
 .status {
