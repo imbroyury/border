@@ -45,6 +45,7 @@ export interface VehicleSearchResult {
   status: string
   last_seen: string
   crossing_count: number
+  is_active: boolean
 }
 
 export interface VehicleListResponse {

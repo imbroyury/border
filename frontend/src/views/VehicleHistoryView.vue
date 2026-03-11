@@ -66,8 +66,8 @@ function statusClass(status: string): string {
   }
 }
 
-function isTerminalStatus(status: string): boolean {
-  return status === 'passed' || status === 'cancelled'
+function shouldShowGone(c: CrossingHistory): boolean {
+  return !c.is_active && c.current_status !== 'passed' && c.current_status !== 'cancelled' && c.current_status !== 'called'
 }
 </script>
 
@@ -99,7 +99,7 @@ function isTerminalStatus(status: string): boolean {
               </span>
             </div>
             <div class="crossing-right">
-              <span :class="['status-badge', statusClass(c.current_status)]">{{ c.current_status }}</span>
+              <span :class="['status-badge', statusClass(shouldShowGone(c) ? 'gone' : c.current_status)]">{{ shouldShowGone(c) ? 'gone' : c.current_status }}</span>
               <span v-if="c.is_active" class="active-indicator">active</span>
               <span class="expand-icon">{{ expanded.has(c.crossing_id) ? '\u25B2' : '\u25BC' }}</span>
             </div>
@@ -113,7 +113,7 @@ function isTerminalStatus(status: string): boolean {
               </div>
               <span :class="['status-badge', statusClass(sc.status)]">{{ sc.status }}</span>
             </div>
-            <div v-if="!c.is_active && !isTerminalStatus(c.current_status)" class="timeline-entry gone-entry">
+            <div v-if="shouldShowGone(c)" class="timeline-entry gone-entry">
               <div class="timeline-time">{{ formatTime(c.last_seen_at) }}</div>
               <span class="status-badge status-gone">gone</span>
             </div>

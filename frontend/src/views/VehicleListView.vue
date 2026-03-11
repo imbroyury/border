@@ -122,8 +122,16 @@ function statusClass(status: string): string {
     case 'passed': return 'status-passed'
     case 'registered': return 'status-registered'
     case 'cancelled': return 'status-cancelled'
+    case 'gone': return 'status-gone'
     default: return ''
   }
+}
+
+function displayStatus(v: VehicleSearchResult): string {
+  if (!v.is_active && v.status !== 'passed' && v.status !== 'cancelled' && v.status !== 'called') {
+    return 'gone'
+  }
+  return v.status
 }
 
 onMounted(async () => {
@@ -190,7 +198,7 @@ onMounted(async () => {
             >
               <td class="mono">{{ v.reg_number }}</td>
               <td>{{ v.zone_id }}</td>
-              <td><span :class="['status-badge', statusClass(v.status)]">{{ v.status }}</span></td>
+              <td><span :class="['status-badge', statusClass(displayStatus(v))]">{{ displayStatus(v) }}</span></td>
               <td>{{ v.crossing_count }}</td>
               <td>{{ formatTime(v.last_seen) }}</td>
             </tr>
@@ -337,6 +345,12 @@ onMounted(async () => {
 .status-cancelled {
   background: rgba(255, 107, 107, 0.2);
   color: #ff6b6b;
+}
+
+.status-gone {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+  font-style: italic;
 }
 
 .pagination {

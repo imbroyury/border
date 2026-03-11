@@ -67,6 +67,7 @@ type VehicleSearchResult struct {
 	Status        string    `json:"status"`
 	LastSeen      time.Time `json:"last_seen"`
 	CrossingCount int       `json:"crossing_count"`
+	IsActive      bool      `json:"is_active"`
 }
 
 // VehicleListParams holds parameters for the ListVehicles query.
@@ -398,7 +399,7 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 	query := fmt.Sprintf(`
 		WITH latest AS (
 			SELECT DISTINCT ON (reg_number, zone_id)
-			       reg_number, zone_id, current_status, last_seen_at
+			       reg_number, zone_id, current_status, last_seen_at, is_active
 			FROM vehicle_crossings
 			WHERE ($1 = '' OR reg_number ILIKE '%%' || $1 || '%%')
 			  AND ($2 = '' OR zone_id = $2)
@@ -411,7 +412,7 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 			  AND ($2 = '' OR zone_id = $2)
 			GROUP BY reg_number
 		)
-		SELECT l.reg_number, l.zone_id, l.current_status, l.last_seen_at,
+		SELECT l.reg_number, l.zone_id, l.current_status, l.last_seen_at, l.is_active,
 		       COALESCE(c.crossing_count, 0), COUNT(*) OVER() AS total
 		FROM latest l
 		LEFT JOIN counts c ON c.reg_number = l.reg_number
@@ -428,7 +429,7 @@ func (d *DB) ListVehicles(ctx context.Context, params VehicleListParams) (*Vehic
 	var total int
 	for rows.Next() {
 		var r VehicleSearchResult
-		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen, &r.CrossingCount, &total); err != nil {
+		if err := rows.Scan(&r.RegNumber, &r.ZoneID, &r.Status, &r.LastSeen, &r.IsActive, &r.CrossingCount, &total); err != nil {
 			return nil, fmt.Errorf("scan vehicle list result: %w", err)
 		}
 		results = append(results, r)
