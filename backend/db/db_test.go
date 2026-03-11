@@ -560,6 +560,79 @@ func TestGetVehicleHistoryGrouped_WithData(t *testing.T) {
 	}
 }
 
+func TestGetVehicleHistoryGrouped_MultipleCrossingsStatusChanges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+
+	// Insert two crossings for the same vehicle — this triggered a slice
+	// reallocation bug where status changes for the first crossing were
+	// written to an orphaned copy of the slice.
+	var crossingID1, crossingID2 int64
+	err := database.Pool.QueryRow(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, false) RETURNING id`,
+		"brest", "TEST-002", "live", now.Add(-4*time.Hour), now.Add(-2*time.Hour), "cancelled",
+	).Scan(&crossingID1)
+	if err != nil {
+		t.Fatalf("insert crossing 1: %v", err)
+	}
+
+	err = database.Pool.QueryRow(ctx,
+		`INSERT INTO vehicle_crossings (zone_id, reg_number, queue_type, first_seen_at, last_seen_at, current_status, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id`,
+		"brest", "TEST-002", "live", now.Add(-time.Hour), now, "in_queue",
+	).Scan(&crossingID2)
+	if err != nil {
+		t.Fatalf("insert crossing 2: %v", err)
+	}
+
+	// Add status changes to both crossings
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $4)`,
+		crossingID1, "in_queue", now.Add(-4*time.Hour), now.Add(-3*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("insert sc for crossing 1a: %v", err)
+	}
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $4)`,
+		crossingID1, "cancelled", now.Add(-3*time.Hour), now.Add(-2*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("insert sc for crossing 1b: %v", err)
+	}
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $4)`,
+		crossingID2, "in_queue", now.Add(-time.Hour), now,
+	)
+	if err != nil {
+		t.Fatalf("insert sc for crossing 2: %v", err)
+	}
+
+	crossings, err := database.GetVehicleHistoryGrouped(ctx, "TEST-002", "")
+	if err != nil {
+		t.Fatalf("GetVehicleHistoryGrouped: %v", err)
+	}
+
+	if len(crossings) != 2 {
+		t.Fatalf("expected 2 crossings, got %d", len(crossings))
+	}
+
+	// First crossing must have its status changes (this was the bug)
+	if len(crossings[0].StatusChanges) != 2 {
+		t.Errorf("crossing 1: expected 2 status changes, got %d", len(crossings[0].StatusChanges))
+	}
+	if len(crossings[1].StatusChanges) != 1 {
+		t.Errorf("crossing 2: expected 1 status change, got %d", len(crossings[1].StatusChanges))
+	}
+}
+
 func TestGetVehicleHistoryGrouped_FilterByZone(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
