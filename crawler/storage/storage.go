@@ -154,7 +154,10 @@ func (s *Store) ApplyCrawlDiff(ctx context.Context, zoneID string, capturedAt ti
 					sameStatusIDs = append(sameStatusIDs, existingID)
 					continue
 				}
-				// No matching inactive crossing found — fall through to create new one
+				// No matching inactive crossing found — skip entirely.
+				// A vehicle first appearing with a terminal status is already
+				// done; creating a crossing for it produces phantom records.
+				continue
 			}
 
 			// New vehicle — INSERT crossing + first status_change

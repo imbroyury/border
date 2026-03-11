@@ -398,71 +398,105 @@ func TestApplyCrawlDiff_TerminalFlicker(t *testing.T) {
 	t3 := time.Now().UTC().Add(-time.Hour)
 	t4 := time.Now().UTC()
 
-	// Crawl 1: vehicle appears as cancelled
+	// Crawl 1: vehicle appears as cancelled — should be skipped (terminal first appearance)
 	if err := store.ApplyCrawlDiff(ctx, "brest", t1, []CrossingUpdate{
 		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t1},
 	}, nil); err != nil {
 		t.Fatalf("ApplyCrawlDiff 1: %v", err)
 	}
 
-	// Crawl 2: vehicle disappears
+	// Crawl 2: vehicle reappears, still cancelled
 	active, err := store.GetActiveCrossings(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetActiveCrossings 1: %v", err)
 	}
-	if err := store.ApplyCrawlDiff(ctx, "brest", t2, nil, active); err != nil {
+	if err := store.ApplyCrawlDiff(ctx, "brest", t2, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t2},
+	}, active); err != nil {
 		t.Fatalf("ApplyCrawlDiff 2: %v", err)
 	}
 
-	// Crawl 3: vehicle reappears, still cancelled (API flicker)
+	// Crawl 3: disappears, then reappears again
 	active, err = store.GetActiveCrossings(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetActiveCrossings 2: %v", err)
 	}
-	if err := store.ApplyCrawlDiff(ctx, "brest", t3, []CrossingUpdate{
-		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t3},
-	}, active); err != nil {
-		t.Fatalf("ApplyCrawlDiff 3: %v", err)
+	if err := store.ApplyCrawlDiff(ctx, "brest", t3, nil, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 3 (disappear): %v", err)
 	}
-
-	// Crawl 4: vehicle disappears again, then reappears again
 	active, err = store.GetActiveCrossings(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetActiveCrossings 3: %v", err)
 	}
-	if err := store.ApplyCrawlDiff(ctx, "brest", t4, nil, active); err != nil {
-		t.Fatalf("ApplyCrawlDiff 4 (disappear): %v", err)
-	}
-	active, err = store.GetActiveCrossings(ctx, "brest")
-	if err != nil {
-		t.Fatalf("GetActiveCrossings 4: %v", err)
-	}
 	if err := store.ApplyCrawlDiff(ctx, "brest", t4, []CrossingUpdate{
 		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t4},
 	}, active); err != nil {
-		t.Fatalf("ApplyCrawlDiff 5 (reappear): %v", err)
+		t.Fatalf("ApplyCrawlDiff 4 (reappear): %v", err)
 	}
 
-	// Should still be just 1 crossing (not 3 duplicates)
+	// Should be 0 crossings — terminal vehicles with no prior crossing are skipped
 	var count int
 	if err := store.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM vehicle_crossings WHERE reg_number='AB1234'",
 	).Scan(&count); err != nil {
 		t.Fatalf("count crossings: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 crossing (terminal flicker should not duplicate), got %d", count)
+	if count != 0 {
+		t.Errorf("expected 0 crossings (terminal first appearance should be skipped), got %d", count)
+	}
+}
+
+func TestApplyCrawlDiff_CancelledThenReenters(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
 	}
 
-	// last_seen_at should be updated to t4
-	var lastSeen time.Time
-	if err := store.pool.QueryRow(ctx,
-		"SELECT last_seen_at FROM vehicle_crossings WHERE reg_number='AB1234'",
-	).Scan(&lastSeen); err != nil {
-		t.Fatalf("get last_seen_at: %v", err)
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	t1 := time.Now().UTC().Add(-3 * time.Hour)
+	t2 := time.Now().UTC().Add(-2 * time.Hour)
+	t3 := time.Now().UTC().Add(-time.Hour)
+	t4 := time.Now().UTC()
+
+	// Crawl 1: vehicle enters queue
+	if err := store.ApplyCrawlDiff(ctx, "brest", t1, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "in_queue", CapturedAt: t1},
+	}, nil); err != nil {
+		t.Fatalf("ApplyCrawlDiff 1: %v", err)
 	}
-	if !lastSeen.Equal(t4) {
-		t.Errorf("expected last_seen_at=%v, got %v", t4, lastSeen)
+
+	// Crawl 2: vehicle gets cancelled
+	active, _ := store.GetActiveCrossings(ctx, "brest")
+	if err := store.ApplyCrawlDiff(ctx, "brest", t2, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t2},
+	}, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 2: %v", err)
+	}
+
+	// Crawl 3: vehicle disappears
+	active, _ = store.GetActiveCrossings(ctx, "brest")
+	if err := store.ApplyCrawlDiff(ctx, "brest", t3, nil, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 3: %v", err)
+	}
+
+	// Crawl 4: vehicle re-enters queue (new crossing)
+	active, _ = store.GetActiveCrossings(ctx, "brest")
+	if err := store.ApplyCrawlDiff(ctx, "brest", t4, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "in_queue", CapturedAt: t4},
+	}, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 4: %v", err)
+	}
+
+	var count int
+	if err := store.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM vehicle_crossings WHERE reg_number='AB1234'",
+	).Scan(&count); err != nil {
+		t.Fatalf("count crossings: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 crossings (cancelled then re-entered), got %d", count)
 	}
 }
 
@@ -479,14 +513,14 @@ func TestApplyCrawlDiff_TerminalThenNew(t *testing.T) {
 	t2 := time.Now().UTC().Add(-time.Hour)
 	t3 := time.Now().UTC()
 
-	// First crawl: vehicle passes
+	// First crawl: vehicle appears as passed — skipped (terminal first appearance)
 	if err := store.ApplyCrawlDiff(ctx, "brest", t1, []CrossingUpdate{
 		{RegNumber: "AB1234", QueueType: "live", Status: "passed", CapturedAt: t1},
 	}, nil); err != nil {
 		t.Fatalf("ApplyCrawlDiff 1: %v", err)
 	}
 
-	// Second crawl: vehicle disappears after passing
+	// Second crawl: vehicle disappears
 	active, err := store.GetActiveCrossings(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetActiveCrossings 1: %v", err)
@@ -495,13 +529,10 @@ func TestApplyCrawlDiff_TerminalThenNew(t *testing.T) {
 		t.Fatalf("ApplyCrawlDiff 2: %v", err)
 	}
 
-	// Third crawl: same vehicle reappears (new queue entry)
+	// Third crawl: same vehicle reappears with non-terminal status (new queue entry)
 	active, err = store.GetActiveCrossings(ctx, "brest")
 	if err != nil {
 		t.Fatalf("GetActiveCrossings 2: %v", err)
-	}
-	if len(active) != 0 {
-		t.Fatalf("expected no active crossings, got %d", len(active))
 	}
 	if err := store.ApplyCrawlDiff(ctx, "brest", t3, []CrossingUpdate{
 		{RegNumber: "AB1234", QueueType: "live", Status: "in_queue", CapturedAt: t3},
@@ -515,7 +546,7 @@ func TestApplyCrawlDiff_TerminalThenNew(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("count crossings: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 crossings (terminal then new), got %d", count)
+	if count != 1 {
+		t.Errorf("expected 1 crossing (terminal first appearance skipped, only non-terminal creates crossing), got %d", count)
 	}
 }
