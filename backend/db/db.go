@@ -312,7 +312,7 @@ func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zon
 	defer rows.Close()
 
 	var crossings []CrossingHistory
-	crossingByID := make(map[int64]*CrossingHistory)
+	crossingByID := make(map[int64]int) // crossing ID → index in crossings slice
 
 	for rows.Next() {
 		var c CrossingHistory
@@ -321,8 +321,8 @@ func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zon
 			return nil, fmt.Errorf("scan crossing: %w", err)
 		}
 		c.StatusChanges = []StatusChange{}
+		crossingByID[c.CrossingID] = len(crossings)
 		crossings = append(crossings, c)
-		crossingByID[c.CrossingID] = &crossings[len(crossings)-1]
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
@@ -355,8 +355,8 @@ func (d *DB) GetVehicleHistoryGrouped(ctx context.Context, regNumber string, zon
 		if err := scRows.Scan(&crossingID, &sc.Status, &sc.DetectedAt, &sc.LastSeenAt); err != nil {
 			return nil, fmt.Errorf("scan status change: %w", err)
 		}
-		if c, ok := crossingByID[crossingID]; ok {
-			c.StatusChanges = append(c.StatusChanges, sc)
+		if idx, ok := crossingByID[crossingID]; ok {
+			crossings[idx].StatusChanges = append(crossings[idx].StatusChanges, sc)
 		}
 	}
 	if err := scRows.Err(); err != nil {

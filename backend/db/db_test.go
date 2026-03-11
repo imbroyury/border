@@ -528,7 +528,7 @@ func TestGetVehicleHistoryGrouped_WithData(t *testing.T) {
 	}
 
 	_, err = database.Pool.Exec(ctx,
-		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $3)`,
+		`INSERT INTO vehicle_status_changes (crossing_id, status, detected_at, last_seen_at) VALUES ($1, $2, $3, $4)`,
 		crossingID, "called", now.Add(-time.Hour), now,
 	)
 	if err != nil {
