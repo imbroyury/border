@@ -1,0 +1,2 @@
+-- Cannot undo: merged duplicates cannot be reliably separated.
+-- This is a data cleanup migration only.

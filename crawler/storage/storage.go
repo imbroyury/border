@@ -35,6 +35,11 @@ type CrossingUpdate struct {
 	CapturedAt   time.Time
 }
 
+// isTerminalStatus returns true for statuses that indicate a crossing is complete.
+func isTerminalStatus(status string) bool {
+	return status == "passed" || status == "cancelled"
+}
+
 // Store provides database operations for the crawler.
 type Store struct {
 	pool *pgxpool.Pool
@@ -133,6 +138,25 @@ func (s *Store) ApplyCrawlDiff(ctx context.Context, zoneID string, capturedAt ti
 	for _, u := range current {
 		ac, ok := active[u.RegNumber]
 		if !ok {
+			// Vehicle not in active map. If it has a terminal status, check for a
+			// recent inactive crossing with the same status to avoid duplicates
+			// caused by the API intermittently returning terminal vehicles.
+			if isTerminalStatus(u.Status) {
+				var existingID int64
+				err = tx.QueryRow(ctx,
+					`SELECT id FROM vehicle_crossings
+					 WHERE zone_id = $1 AND reg_number = $2 AND is_active = false AND current_status = $3
+					 ORDER BY last_seen_at DESC LIMIT 1`,
+					zoneID, u.RegNumber, u.Status,
+				).Scan(&existingID)
+				if err == nil {
+					// Reuse existing terminal crossing — just update last_seen_at
+					sameStatusIDs = append(sameStatusIDs, existingID)
+					continue
+				}
+				// No matching inactive crossing found — fall through to create new one
+			}
+
 			// New vehicle — INSERT crossing + first status_change
 			var registeredAt any
 			if !u.RegisteredAt.IsZero() {

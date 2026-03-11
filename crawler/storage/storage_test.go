@@ -384,6 +384,88 @@ func TestApplyCrawlDiff_VehicleReturns(t *testing.T) {
 	}
 }
 
+func TestApplyCrawlDiff_TerminalFlicker(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	t1 := time.Now().UTC().Add(-3 * time.Hour)
+	t2 := time.Now().UTC().Add(-2 * time.Hour)
+	t3 := time.Now().UTC().Add(-time.Hour)
+	t4 := time.Now().UTC()
+
+	// Crawl 1: vehicle appears as cancelled
+	if err := store.ApplyCrawlDiff(ctx, "brest", t1, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t1},
+	}, nil); err != nil {
+		t.Fatalf("ApplyCrawlDiff 1: %v", err)
+	}
+
+	// Crawl 2: vehicle disappears
+	active, err := store.GetActiveCrossings(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetActiveCrossings 1: %v", err)
+	}
+	if err := store.ApplyCrawlDiff(ctx, "brest", t2, nil, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 2: %v", err)
+	}
+
+	// Crawl 3: vehicle reappears, still cancelled (API flicker)
+	active, err = store.GetActiveCrossings(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetActiveCrossings 2: %v", err)
+	}
+	if err := store.ApplyCrawlDiff(ctx, "brest", t3, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t3},
+	}, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 3: %v", err)
+	}
+
+	// Crawl 4: vehicle disappears again, then reappears again
+	active, err = store.GetActiveCrossings(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetActiveCrossings 3: %v", err)
+	}
+	if err := store.ApplyCrawlDiff(ctx, "brest", t4, nil, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 4 (disappear): %v", err)
+	}
+	active, err = store.GetActiveCrossings(ctx, "brest")
+	if err != nil {
+		t.Fatalf("GetActiveCrossings 4: %v", err)
+	}
+	if err := store.ApplyCrawlDiff(ctx, "brest", t4, []CrossingUpdate{
+		{RegNumber: "AB1234", QueueType: "live", Status: "cancelled", CapturedAt: t4},
+	}, active); err != nil {
+		t.Fatalf("ApplyCrawlDiff 5 (reappear): %v", err)
+	}
+
+	// Should still be just 1 crossing (not 3 duplicates)
+	var count int
+	if err := store.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM vehicle_crossings WHERE reg_number='AB1234'",
+	).Scan(&count); err != nil {
+		t.Fatalf("count crossings: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 crossing (terminal flicker should not duplicate), got %d", count)
+	}
+
+	// last_seen_at should be updated to t4
+	var lastSeen time.Time
+	if err := store.pool.QueryRow(ctx,
+		"SELECT last_seen_at FROM vehicle_crossings WHERE reg_number='AB1234'",
+	).Scan(&lastSeen); err != nil {
+		t.Fatalf("get last_seen_at: %v", err)
+	}
+	if !lastSeen.Equal(t4) {
+		t.Errorf("expected last_seen_at=%v, got %v", t4, lastSeen)
+	}
+}
+
 func TestApplyCrawlDiff_TerminalThenNew(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
